@@ -159,7 +159,7 @@ public class GoogleDriveUser extends AbstractUser {
     }
 
     @Override
-    public void setMaxFileNumberInDir(int i, Storage storage, Directory directory) {
+    public void setMaxFileNumberInDir(int i, Storage storage, String dirPath) {
 
     }
 
