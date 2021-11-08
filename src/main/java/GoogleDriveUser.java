@@ -6,7 +6,10 @@ import com.google.api.services.drive.model.File;
 import com.google.api.services.drive.model.FileList;
 import storageSpec.*;
 
+import java.io.ByteArrayOutputStream;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -30,11 +33,6 @@ public class GoogleDriveUser extends AbstractUser {
             e.printStackTrace();
         }
     }
-    /*
-    public GoogleDriveUser(String userName, String password) throws GeneralSecurityException, IOException {
-        super(userName, password);
-    }
-     */
     public GoogleDriveUser() throws GeneralSecurityException, IOException{
         super.initStoragesAndPrivileges(new HashMap<>());
         driveService = new Drive.Builder(HTTP_TRANSPORT, DriveQuickstart.getJsonFactory(), DriveQuickstart.getCredentials(HTTP_TRANSPORT))
@@ -48,7 +46,10 @@ public class GoogleDriveUser extends AbstractUser {
      */
     @Override
     public void initStorage(String storageName, String rootLocation) {
-
+        if(!checkName(storageName)){
+            System.out.println("File with name: " + storageName +  " already exists. Choose another name.");
+            return;
+        }
         File fileMetadata = new File();
         fileMetadata.setName(storageName);
         fileMetadata.setMimeType("application/vnd.google-apps.folder");
@@ -73,15 +74,21 @@ public class GoogleDriveUser extends AbstractUser {
     public void saveStorageData() {
 
     }
-
+    /**
+     * Creates directory with given name('String dir') at the specified path(String 'path'); for example createDir("newDir" , "storage/dir1/dir2")
+     * When it is created, path of our new directory will be "storage/dir1/dir2/newDir"
+     * */
     @Override
     public void createDir(String dir, String path) {
+        if(!checkName(dir)){
+            System.out.println("File with name: " + dir +  " already exists. Choose another name.");
+            return;
+        }
         File fileMetadata = new File();
         fileMetadata.setName(dir);
-        String folderId = this.findStorageID(path);
+        String folderId = this.findParentDirID(path);
         fileMetadata.setParents(Collections.singletonList(folderId));
         fileMetadata.setMimeType("application/vnd.google-apps.folder");
-
         File file = null;
         try {
             file = driveService.files().create(fileMetadata)
@@ -99,32 +106,35 @@ public class GoogleDriveUser extends AbstractUser {
 
     }
     /**
-     * Uploads existing file with given name, with given type(txt, png...), from path(location on local file system) to google drive storage with given storageName
+     * Uploads existing file with given name, with given type(txt, png...), from pathOnMyComputer(location on local file system) to google drive storage  with given path
+     * inside storage->for example: "storage/dir1/dir2"
+     * When it is created, path of our file will be "storage/dir1/dir2/myFile"
      */
     @Override
-    public void uploadExistingFile(String fileName, String path, String storageName, String fileType) {
-        String folderId = this.findStorageID(storageName);
+    public void uploadExistingFile(String fileName, String pathWhereToCreateFile,  String pathOnMyComputer, String fileType) {
+        String folderId = this.findParentDirID(pathWhereToCreateFile);
         File fileMetadata = new File();
         fileMetadata.setName(fileName);
         fileMetadata.setParents(Collections.singletonList(folderId));
-        java.io.File filePath = new java.io.File(path);
+        java.io.File filePath = new java.io.File(pathOnMyComputer);
         FileContent mediaContent = new FileContent(fileType, filePath);
         File file = null;
         try {
             file = driveService.files().create(fileMetadata, mediaContent)
                     .setFields("id, parents")
                     .execute();
+            file.setName(fileName);
         } catch (IOException e) {
             e.printStackTrace();
         }
-        System.out.println("File ID: " + file.getId());
+        System.out.println("File ID: " + file.getId() + "; file name: " + file.getName());
     }
     /**
-     * Creates file on specified path on local file system and then uploads it on google drive storage with given storageName
+     * Creates file on specified path on local file system and then uploads it on google drive storage with given path inside storage
      */
     @Override
-    public void createFile(String fileName, String path, String storageName, String fileType) {
-        Path filepath = Paths.get(path); //creates Path instance
+    public void createFile(String fileName, String pathWhereToUploadFile, String pathOnMyComputer, String fileType) {
+        Path filepath = Paths.get(pathOnMyComputer); //creates Path instance
         try
         {
             Path p= Files.createFile(filepath);     //creates empty file at specified location(path) on local file system
@@ -134,7 +144,7 @@ public class GoogleDriveUser extends AbstractUser {
         {
             e.printStackTrace();
         }
-        this.uploadExistingFile(fileName, path, storageName, fileType);
+        this.uploadExistingFile(fileName, pathWhereToUploadFile, pathOnMyComputer, fileType);
     }
 
     @Override
@@ -148,13 +158,62 @@ public class GoogleDriveUser extends AbstractUser {
     }
 
     @Override
-    public void delete(String s) {
-
+    public void delete(String name) {
+        FileList result = null;
+        try {
+            result = driveService.files().list()
+                    .setQ("name = '" + name + "'")
+                    .setFields("nextPageToken, files(id, name)")
+                    .execute();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        List<File> files = result.getFiles();
+        if(files == null || files.isEmpty()){
+            System.out.println("error in method delete: there is no file with name: " + name );
+            return;
+        }
+        if(files.size() > 1){
+            System.out.println("error in method delete: there is more than 1 file with name: " + name);
+            return;
+        }
+        try {
+            this.driveService.files().delete(files.get(0).getId()).execute();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
     }
 
     @Override
-    public void download(String s) {
-
+    public void download(String name, String whereToDownload) {
+        FileList result = null;
+        try {
+            result = driveService.files().list()
+                    .setQ("name = '" + name + "'")
+                    .setFields("nextPageToken, files(id, name)")
+                    .execute();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        List<File> files = result.getFiles();
+        if(files == null || files.isEmpty()){
+            System.out.println("error in method download: there is no file with name: " + name );
+            return;
+        }
+        if(files.size() > 1){
+            System.out.println("error in method download: there is more than 1 file with name: " + name);
+            return;
+        }
+        String fileId = files.get(0).getId();
+        try {
+            OutputStream outputStream = new FileOutputStream(whereToDownload);
+            driveService.files().get(fileId)
+                    .executeMediaAndDownloadTo(outputStream);
+            outputStream.flush();
+            outputStream.close();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
     }
 
     @Override
@@ -251,12 +310,55 @@ public class GoogleDriveUser extends AbstractUser {
             }
         }
         System.out.println("ERROR: ID for storage with name: " + storageName + " has not been found");
-        return "error";
+        return null;
     }
-    //here i stopped; i need this method to create file on specified path on google drive
-    private String findParentDirID(String storagePath){
-        String[] array = storagePath.split("/");
 
-       return null;
+    private String findParentDirID(String path){
+        String[] array = path.split("/");
+        if(array.length == 1){//ako pravimo fajl(folder) direktno u korenksom direktorijumu skladista
+            return findStorageID(array[0]);
+        }
+        String parentName = array[array.length-1];
+        String storageName = array[0];
+        FileList result = null;
+        try {
+            result = driveService.files().list()
+                    .setQ("name = '" + parentName + "'")
+                    .setFields("nextPageToken, files(id, name)")
+                    .execute();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        List<File> files = result.getFiles();
+        if(files == null || files.isEmpty()){
+            System.out.println("error in method findParentDirID: there is no parent with that name");
+            return null;
+        }
+        if(files.size() > 1){
+            System.out.println("error in method findParentDirID: there is more than 1 parent with that name");
+            return null;
+        }
+        return files.get(0).getId();
+    }
+    private boolean checkName(String name){
+        FileList result = null;
+        try {
+            result = driveService.files().list()
+                    .setFields("nextPageToken, files(id, name)")
+                    .execute();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        List<File> files = result.getFiles();
+        if (files == null || files.isEmpty()) {
+            System.out.println("No files found.");
+        } else {
+            for (File file : files) {
+                if(file.getName().equalsIgnoreCase(name)){
+                    return false;
+                }
+            }
+        }
+        return true;
     }
 }
