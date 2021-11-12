@@ -10,6 +10,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -205,12 +206,28 @@ public class GoogleDriveUser extends AbstractUser {
             return;
         }
         String fileId = files.get(0).getId();
+
         try {
-            OutputStream outputStream = new FileOutputStream(whereToDownload);
+            ///MORAJU DA SE PRIMENE RAZLICITE VRSTE DOWNLOADOVANJA ZA RAZLICITE VRSTE FAJLOVA: LINK https://developers.google.com/drive/api/v3/manage-downloads#java
+            //pocetak koda koji radi za downlodaovanje aaa.txt sa mog drajva
+            OutputStream outputStream = new ByteArrayOutputStream();
             driveService.files().get(fileId)
                     .executeMediaAndDownloadTo(outputStream);
-            outputStream.flush();
-            outputStream.close();
+            System.out.println(outputStream);
+            //kraj koda koji radi za downlodaovanje aaa.txt sa mog drajva
+
+            //pocetak koda koji radi za downloadovanje skProba.txt sa mog drajva
+//            OutputStream outputStream = new ByteArrayOutputStream();
+//            driveService.files().export(fileId, "text/plain").executeMediaAndDownloadTo(outputStream);
+//            outputStream.flush();
+//            outputStream.close();
+//
+//            Path filepath = Paths.get(whereToDownload + "\\" + name); //creates Path instance
+//            Path p= Files.createFile(filepath);
+//
+//            List<String> lines = Arrays.asList(outputStream.toString());
+//            Files.write(Paths.get(whereToDownload + "\\" + name), lines);
+            //kraj koda koji radi za downloadovanje skProba.txt sa mog drajva
         } catch (IOException e) {
             e.printStackTrace();
         }
