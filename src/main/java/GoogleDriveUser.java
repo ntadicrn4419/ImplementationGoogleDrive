@@ -60,6 +60,7 @@ public class GoogleDriveUser extends AbstractUser {
                     .setFields("id")
                     .execute();
             file.setName(storageName);
+            file.setMimeType("application/vnd.google-apps.folder");//dodato
         } catch (IOException e) {
             e.printStackTrace();
         }
@@ -95,6 +96,7 @@ public class GoogleDriveUser extends AbstractUser {
                     .setFields("id")
                     .execute();
             file.setName(dir);
+            file.setMimeType("application/vnd.google-apps.folder");//dodato
         } catch (IOException e) {
             e.printStackTrace();
         }
@@ -124,6 +126,7 @@ public class GoogleDriveUser extends AbstractUser {
                     .setFields("id, parents")
                     .execute();
             file.setName(fileName);
+            file.setMimeType("application/vnd.google-apps.file");
         } catch (IOException e) {
             e.printStackTrace();
         }
@@ -317,14 +320,12 @@ public class GoogleDriveUser extends AbstractUser {
         } catch (IOException e) {
             e.printStackTrace();
         }
-        for(File file: childrenList.getFiles()){ // ako je folder, znaci ima decu, moramo da download-ujem jedno po jedno dete
+        for(File file: childrenList.getFiles()){
             if(isFolder(file)){
                 download(file.getName(), whereToDownload + "\\" + name);
+                continue;
             }
             try {
-                if(isFolder(file)){//mora da postoji ova provera, zato sto nakon rekurzije, ponovo cemo pokusati da downlodujemo folder, a to ne moze!
-                    continue;
-                }
                 download1(file.getId(), whereToDownload + "\\" + name, file.getName());
             }catch (Exception e1){
                 try {
@@ -338,39 +339,11 @@ public class GoogleDriveUser extends AbstractUser {
 
     }
     private boolean isFolder(File file){
-        /*
-        if(file.getMimeType().equalsIgnoreCase("application/vnd.google-apps.folder")){//polje nije setovano, tkd ne moze ovako; vraca null pointer exception
+
+        if(file.getMimeType() != null && file.getMimeType().equalsIgnoreCase("application/vnd.google-apps.folder")){
             return true;
         }
         return false;
-         */
-        FileList result = null;
-        try {
-            result = driveService.files().list()
-                    .setQ("mimeType='application/vnd.google-apps.folder' and trashed=false")
-                    .setFields("nextPageToken, files(id, name)")
-                    .execute();
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-        List<File> files = result.getFiles();
-        if(files.contains(file)){//ne prepoznaje ugnjezden prazan folder!!!-->PROBLEM
-            return true;
-        }
-        return false;
-    }
-    private List<File> findFileByName(String name){
-        FileList result = null;
-        try {
-            result = driveService.files().list()
-                    .setQ("name = '" + name + "'")
-                    .setFields("nextPageToken, files(id, name)")
-                    .execute();
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-        List<File> files = result.getFiles();
-        return files;
     }
     private void download1(String fileId, String whereToDownload, String name) throws IOException {//za obicne(npr .txt )fajlove
         OutputStream outputStream = new ByteArrayOutputStream();
@@ -391,24 +364,125 @@ public class GoogleDriveUser extends AbstractUser {
         Files.write(Paths.get(whereToDownload + "\\" + name), lines);
         outputStream.close();
     }
+    private List<File> findFileByName(String name){
+        FileList result = null;
+        try {
+            result = driveService.files().list()
+                    .setQ("name = '" + name + "'")
+                    .setFields("nextPageToken, files(id, name)")
+                    .execute();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        List<File> files = result.getFiles();
+        return files;
+    }
+
+    //PROBLEM: ne radi kada se prosledi cela putanja, npr: mojeSkladiste/dir1; radi samo sa dir1-->srediti
+    //RESENO: ako korisnik unese celu putanju, mi uzimamo samo poslednji naziv zato sto znamo da su imena jedinstvena na nivou skladista
     @Override
-    public Collection<String> searchFilesInDir(String s) {
-        return null;
+    public Collection<String> searchFilesInDir(String dir) {
+
+        String pathToDir[] = dir.split("/");
+
+        FileList result = null;
+        String fileId = findFileByName(pathToDir[pathToDir.length-1]).get(0).getId();
+        String fileQuery = "'" + fileId + "' in parents and trashed=false and mimeType!='application/vnd.google-apps.folder'";
+        try {
+            result = driveService.files().list()
+                    .setFields("nextPageToken, files(id, name)")
+                    .setQ(fileQuery)
+                    .execute();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        List<File> files = result.getFiles();
+        if (files == null || files.isEmpty()) {
+            System.out.println("No files found.");
+            return null;
+        }
+        List<String> fileNames = new ArrayList<>();
+        for(File f: files){
+            fileNames.add(f.getName());
+        }
+        return fileNames;
+
     }
 
     @Override
-    public Collection<String> searchDirsInDir(String s) {
-        return null;
+    public Collection<String> searchDirsInDir(String dir) {
+        String pathToDir[] = dir.split("/");
+
+        FileList result = null;
+        String fileId = findFileByName(pathToDir[pathToDir.length-1]).get(0).getId();
+        String fileQuery = "'" + fileId + "' in parents and trashed=false and mimeType='application/vnd.google-apps.folder'";
+        try {
+            result = driveService.files().list()
+                    .setFields("nextPageToken, files(id, name)")
+                    .setQ(fileQuery)
+                    .execute();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        List<File> files = result.getFiles();
+        if (files == null || files.isEmpty()) {
+            System.out.println("No files found.");
+            return null;
+        }
+        List<String> fileNames = new ArrayList<>();
+        for(File f: files){
+            fileNames.add(f.getName());
+        }
+        return fileNames;
+    }
+
+    //OVA METODA NEMA SMISLA...
+    @Override
+    public Collection<String> searchByName(String name) {//iako vraca kolekciju stringova, vratice uvek kolekciju sa samo jednim clanom, zato sto su imena
+                                                        // jedinstvena na nivou skladista
+        FileList result = null;
+        try {
+            result = driveService.files().list()
+                    .setQ("name = '" + name + "'")
+                    .setFields("nextPageToken, files(id, name)")
+                    .execute();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        List<File> files = result.getFiles();
+        if (files == null || files.isEmpty()) {
+            System.out.println("No files found.");
+            return null;
+        }
+        ArrayList<String> fileNames = new ArrayList<>();
+        for (File file : files) {
+            fileNames.add(file.getName());
+        }
+        return fileNames;
     }
 
     @Override
-    public Collection<String> searchByName(String s) {
-        return null;
-    }
-
-    @Override
-    public Collection<String> searchByExtension(String s) {
-        return null;
+    public Collection<String> searchByExtension(String extention) {
+        String pageToken = null;
+        ArrayList fileNames = new ArrayList();
+        do {
+            FileList result = null;
+            try {
+                result = driveService.files().list()
+                        .setQ("mimeType='" + extention + "'")
+                        .setSpaces("drive")
+                        .setFields("nextPageToken, files(id, name)")
+                        .setPageToken(pageToken)
+                        .execute();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+            for (File file : result.getFiles()) {
+                fileNames.add(file.getName());
+            }
+            pageToken = result.getNextPageToken();
+        } while (pageToken != null);
+        return fileNames;
     }
 
     @Override

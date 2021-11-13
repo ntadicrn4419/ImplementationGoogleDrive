@@ -10,12 +10,26 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.security.GeneralSecurityException;
+import java.util.ArrayList;
 import java.util.List;
 
 public class TestClass {//delete this class later
     public static void main(String... args) throws IOException, GeneralSecurityException {
           AbstractUser user = new GoogleDriveUser();
-          user.download("www", "C:\\Users\\tadic\\Downloads");
+//
+          ArrayList<String> a = new ArrayList<>();
+//          user.initStorage("ms", "drive");
+//          user.uploadExistingFile("3b", "ms", "C:\\Users\\tadic\\Desktop\\3b.txt","/txt" );
+
+          a = (ArrayList<String>) user.searchByExtension("application/vnd.google-apps.folder");
+            for(String s: a){
+                System.out.println(s);
+            }
+//          user.initStorage("mojeSkladiste", "drive");
+//          user.createDir("dir1", "mojeSkladiste");
+//          user.uploadExistingFile("3b", "mojeSkladiste/dir1", "C:\\Users\\tadic\\Desktop\\3b.txt","/txt" );
+//          user.download("mojeSkladiste", "C:\\Users\\tadic\\Downloads");
+
 //        user.delete("bzvz");
 //        user.setUserName("ntadic");
 //        user.setPassword("mypass");
