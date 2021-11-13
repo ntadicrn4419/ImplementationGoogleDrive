@@ -15,7 +15,7 @@ import java.util.List;
 public class TestClass {//delete this class later
     public static void main(String... args) throws IOException, GeneralSecurityException {
           AbstractUser user = new GoogleDriveUser();
-          user.download("aaa.txt", "C:\\Users\\tadic\\Downloads");
+          user.download("www", "C:\\Users\\tadic\\Downloads");
 //        user.delete("bzvz");
 //        user.setUserName("ntadic");
 //        user.setPassword("mypass");

@@ -7,7 +7,6 @@ import com.google.api.services.drive.model.FileList;
 import storageSpec.*;
 
 import java.io.ByteArrayOutputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
@@ -184,9 +183,183 @@ public class GoogleDriveUser extends AbstractUser {
             e.printStackTrace();
         }
     }
-
+    /*
     @Override
     public void download(String name, String whereToDownload) {
+        List<File> files = findFileByName(name);
+        if(files == null || files.isEmpty()){
+            System.out.println("error in method download: there is no file with name: " + name );
+            return;
+        }
+        if(files.size() > 1){
+            System.out.println("error in method download: there is more than 1 file with name: " + name);
+            return;
+        }
+        File f  = files.get(0);
+        String fileId = f.getId();
+
+        String fileQuery = "'" + fileId + "' in parents and trashed=false";
+        FileList childrenList = null;
+        try {
+            childrenList = driveService.files().list().setQ(fileQuery).execute();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        if(childrenList.getFiles() == null || childrenList.getFiles().size() == 0){ // ako je file, a ne folder, onda nema dece i mozemo odmah da ga download-ujuemo
+
+            try {
+                download1(fileId, whereToDownload, name);
+            }catch (Exception e1){
+                try {
+                    download2(fileId, whereToDownload, name);
+                }catch (Exception e2){ // u ovaj catch se udje samo ako se radi o praznom folderu(nema decu, a nije fajl)
+                    //e2.printStackTrace();
+                    Path filepath = Paths.get(whereToDownload + "\\" + name); //creates Path instance
+                    try {
+                        Path p = Files.createDirectory(filepath);
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
+                }
+            }
+            return;
+        }
+        //PROBLEMI :
+        // 1) downloadovanje praznih foldera(i praznih fajlova)??--> problem je sto ja odredjujem da li je folder po tome da li ima decu, sta ako je prazan folder???
+        // 2).png fajl se uspesno skine, ali nece da se prikaze slika(nije podrzan format)
+        // 3)kod downlodovanja2 za google docs, sadrzaj fajla nije pregledan, nije citak
+        Path filepath = Paths.get(whereToDownload + "\\" + name); //creates Path instance
+        try {
+            Path p = Files.createDirectory(filepath);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        for(File file: childrenList.getFiles()){ // ako je folder, znaci ima decu, moramo da download-ujem jedno po jedno dete
+            if(isFolder(file.getId())){
+                download(file.getName(), whereToDownload + "\\" + name);
+            }
+            try {
+                if(isFolder(file.getId())){//mora da postoji ova provera, zato sto nakon rekurzije, ponovo cemo pokusati da downlodujemo folder, a to ne moze!
+                    continue;
+                }
+                download1(file.getId(), whereToDownload + "\\" + name, file.getName());
+            }catch (Exception e1){
+                try {
+                    download2(file.getId(), whereToDownload + "\\" + name, file.getName());
+                }catch (Exception e2){//ovaj catch se desi kada se imamo ugnjezden prazan folder, prazan folder u nekom folderu
+                    //System.out.println("problem sa " + file.getName());
+                    //e2.printStackTrace();
+                    Path fpath = Paths.get(whereToDownload + "\\" + file.getName()); //creates Path instance
+                    try {
+                        Path p = Files.createDirectory(fpath);
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
+                }
+            }
+        }
+
+    }
+    private boolean isFolder(String fileId){
+        String fileQuery = "'" + fileId + "' in parents and trashed=false";
+        FileList childrenList = null;
+        try {
+            childrenList = driveService.files().list().setQ(fileQuery).execute();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        if(childrenList.getFiles() == null || childrenList.getFiles().size() == 0){
+            return false;
+        }
+        return true;
+    }
+     */
+    @Override
+    public void download(String name, String whereToDownload) {
+        List<File> files = findFileByName(name);
+        if(files == null || files.isEmpty()){
+            System.out.println("error in method download: there is no file with name: " + name );
+            return;
+        }
+        if(files.size() > 1){
+            System.out.println("error in method download: there is more than 1 file with name: " + name);
+            return;
+        }
+        File f  = files.get(0);
+        String fileId = f.getId();
+
+        String fileQuery = "'" + fileId + "' in parents and trashed=false";
+        FileList childrenList = null;
+        try {
+            childrenList = driveService.files().list().setQ(fileQuery).execute();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        if(!isFolder(f)){ // ako nije folder, vec fajl, mozemo odmah da ga download-ujuemo
+            try {
+                download1(fileId, whereToDownload, name);
+            }catch (Exception e1){
+                try {
+                    download2(fileId, whereToDownload, name);
+                }catch (Exception e2){
+                    e2.printStackTrace();
+                }
+            }
+            return;
+        }
+        //PROBLEMI :
+        // 1) downloadovanje praznih foldera(i praznih fajlova)??--> problem je sto ja odredjujem da li je folder po tome da li ima decu, sta ako je prazan folder???
+        // 2).png fajl se uspesno skine, ali nece da se prikaze slika(nije podrzan format)
+        // 3)kod downlodovanja2 za google docs, sadrzaj fajla nije pregledan, nije citak
+        Path filepath = Paths.get(whereToDownload + "\\" + name); //creates Path instance
+        try {
+            Path p = Files.createDirectory(filepath);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        for(File file: childrenList.getFiles()){ // ako je folder, znaci ima decu, moramo da download-ujem jedno po jedno dete
+            if(isFolder(file)){
+                download(file.getName(), whereToDownload + "\\" + name);
+            }
+            try {
+                if(isFolder(file)){//mora da postoji ova provera, zato sto nakon rekurzije, ponovo cemo pokusati da downlodujemo folder, a to ne moze!
+                    continue;
+                }
+                download1(file.getId(), whereToDownload + "\\" + name, file.getName());
+            }catch (Exception e1){
+                try {
+                    download2(file.getId(), whereToDownload + "\\" + name, file.getName());
+                }catch (Exception e2){
+                    System.out.println("problem sa " + file.getName());
+                    e2.printStackTrace();
+                }
+            }
+        }
+
+    }
+    private boolean isFolder(File file){
+        /*
+        if(file.getMimeType().equalsIgnoreCase("application/vnd.google-apps.folder")){//polje nije setovano, tkd ne moze ovako; vraca null pointer exception
+            return true;
+        }
+        return false;
+         */
+        FileList result = null;
+        try {
+            result = driveService.files().list()
+                    .setQ("mimeType='application/vnd.google-apps.folder' and trashed=false")
+                    .setFields("nextPageToken, files(id, name)")
+                    .execute();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        List<File> files = result.getFiles();
+        if(files.contains(file)){//ne prepoznaje ugnjezden prazan folder!!!-->PROBLEM
+            return true;
+        }
+        return false;
+    }
+    private List<File> findFileByName(String name){
         FileList result = null;
         try {
             result = driveService.files().list()
@@ -197,42 +370,27 @@ public class GoogleDriveUser extends AbstractUser {
             e.printStackTrace();
         }
         List<File> files = result.getFiles();
-        if(files == null || files.isEmpty()){
-            System.out.println("error in method download: there is no file with name: " + name );
-            return;
-        }
-        if(files.size() > 1){
-            System.out.println("error in method download: there is more than 1 file with name: " + name);
-            return;
-        }
-        String fileId = files.get(0).getId();
-
-        try {
-            ///MORAJU DA SE PRIMENE RAZLICITE VRSTE DOWNLOADOVANJA ZA RAZLICITE VRSTE FAJLOVA: LINK https://developers.google.com/drive/api/v3/manage-downloads#java
-            //pocetak koda koji radi za downlodaovanje aaa.txt sa mog drajva
-            OutputStream outputStream = new ByteArrayOutputStream();
-            driveService.files().get(fileId)
-                    .executeMediaAndDownloadTo(outputStream);
-            System.out.println(outputStream);
-            //kraj koda koji radi za downlodaovanje aaa.txt sa mog drajva
-
-            //pocetak koda koji radi za downloadovanje skProba.txt sa mog drajva
-//            OutputStream outputStream = new ByteArrayOutputStream();
-//            driveService.files().export(fileId, "text/plain").executeMediaAndDownloadTo(outputStream);
-//            outputStream.flush();
-//            outputStream.close();
-//
-//            Path filepath = Paths.get(whereToDownload + "\\" + name); //creates Path instance
-//            Path p= Files.createFile(filepath);
-//
-//            List<String> lines = Arrays.asList(outputStream.toString());
-//            Files.write(Paths.get(whereToDownload + "\\" + name), lines);
-            //kraj koda koji radi za downloadovanje skProba.txt sa mog drajva
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
+        return files;
     }
-
+    private void download1(String fileId, String whereToDownload, String name) throws IOException {//za obicne(npr .txt )fajlove
+        OutputStream outputStream = new ByteArrayOutputStream();
+        driveService.files().get(fileId)
+                .executeMediaAndDownloadTo(outputStream);
+        Path filepath = Paths.get(whereToDownload + "\\" + name); //creates Path instance
+        Path p = Files.createFile(filepath);
+        List<String> lines = Arrays.asList(outputStream.toString());
+        Files.write(Paths.get(whereToDownload + "\\" + name), lines, StandardCharsets.UTF_8);
+    }
+    private void download2(String fileId, String whereToDownload, String name) throws IOException {//za google docs fajlove
+        OutputStream outputStream = new ByteArrayOutputStream();
+        driveService.files().export(fileId, "application/zip").executeMediaAndDownloadTo(outputStream);
+        outputStream.flush();
+        Path filepath = Paths.get(whereToDownload + "\\" + name); //creates Path instance
+        Path p= Files.createFile(filepath);
+        List<String> lines = Arrays.asList(outputStream.toString());
+        Files.write(Paths.get(whereToDownload + "\\" + name), lines);
+        outputStream.close();
+    }
     @Override
     public Collection<String> searchFilesInDir(String s) {
         return null;
