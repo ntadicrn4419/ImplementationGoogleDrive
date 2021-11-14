@@ -1,5 +1,6 @@
 import com.google.api.client.googleapis.javanet.GoogleNetHttpTransport;
 import com.google.api.client.http.javanet.NetHttpTransport;
+import com.google.api.client.util.DateTime;
 import com.google.api.services.drive.Drive;
 import com.google.api.services.drive.model.FileList;
 import storageSpec.AbstractUser;
@@ -16,15 +17,19 @@ import java.util.List;
 public class TestClass {//delete this class later
     public static void main(String... args) throws IOException, GeneralSecurityException {
           AbstractUser user = new GoogleDriveUser();
-//
-          ArrayList<String> a = new ArrayList<>();
+          user.download("bla", "C:\\Users\\tadic\\Downloads");
+//          user.initStorage("sss", "drive");
+//          DateTime dt = (DateTime) user.getCreationDate("sss");
+
+        //System.out.println(dt.toString());
+//          ArrayList<String> a = new ArrayList<>();
 //          user.initStorage("ms", "drive");
 //          user.uploadExistingFile("3b", "ms", "C:\\Users\\tadic\\Desktop\\3b.txt","/txt" );
 
-          a = (ArrayList<String>) user.searchByExtension("application/vnd.google-apps.folder");
-            for(String s: a){
-                System.out.println(s);
-            }
+//          a = (ArrayList<String>) user.searchByExtension("application/vnd.google-apps.folder");
+//            for(String s: a){
+//                System.out.println(s);
+//            }
 //          user.initStorage("mojeSkladiste", "drive");
 //          user.createDir("dir1", "mojeSkladiste");
 //          user.uploadExistingFile("3b", "mojeSkladiste/dir1", "C:\\Users\\tadic\\Desktop\\3b.txt","/txt" );

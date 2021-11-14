@@ -186,7 +186,6 @@ public class GoogleDriveUser extends AbstractUser {
             e.printStackTrace();
         }
     }
-    /*
     @Override
     public void download(String name, String whereToDownload) {
         List<File> files = findFileByName(name);
@@ -201,103 +200,6 @@ public class GoogleDriveUser extends AbstractUser {
         File f  = files.get(0);
         String fileId = f.getId();
 
-        String fileQuery = "'" + fileId + "' in parents and trashed=false";
-        FileList childrenList = null;
-        try {
-            childrenList = driveService.files().list().setQ(fileQuery).execute();
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-        if(childrenList.getFiles() == null || childrenList.getFiles().size() == 0){ // ako je file, a ne folder, onda nema dece i mozemo odmah da ga download-ujuemo
-
-            try {
-                download1(fileId, whereToDownload, name);
-            }catch (Exception e1){
-                try {
-                    download2(fileId, whereToDownload, name);
-                }catch (Exception e2){ // u ovaj catch se udje samo ako se radi o praznom folderu(nema decu, a nije fajl)
-                    //e2.printStackTrace();
-                    Path filepath = Paths.get(whereToDownload + "\\" + name); //creates Path instance
-                    try {
-                        Path p = Files.createDirectory(filepath);
-                    } catch (IOException e) {
-                        e.printStackTrace();
-                    }
-                }
-            }
-            return;
-        }
-        //PROBLEMI :
-        // 1) downloadovanje praznih foldera(i praznih fajlova)??--> problem je sto ja odredjujem da li je folder po tome da li ima decu, sta ako je prazan folder???
-        // 2).png fajl se uspesno skine, ali nece da se prikaze slika(nije podrzan format)
-        // 3)kod downlodovanja2 za google docs, sadrzaj fajla nije pregledan, nije citak
-        Path filepath = Paths.get(whereToDownload + "\\" + name); //creates Path instance
-        try {
-            Path p = Files.createDirectory(filepath);
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-        for(File file: childrenList.getFiles()){ // ako je folder, znaci ima decu, moramo da download-ujem jedno po jedno dete
-            if(isFolder(file.getId())){
-                download(file.getName(), whereToDownload + "\\" + name);
-            }
-            try {
-                if(isFolder(file.getId())){//mora da postoji ova provera, zato sto nakon rekurzije, ponovo cemo pokusati da downlodujemo folder, a to ne moze!
-                    continue;
-                }
-                download1(file.getId(), whereToDownload + "\\" + name, file.getName());
-            }catch (Exception e1){
-                try {
-                    download2(file.getId(), whereToDownload + "\\" + name, file.getName());
-                }catch (Exception e2){//ovaj catch se desi kada se imamo ugnjezden prazan folder, prazan folder u nekom folderu
-                    //System.out.println("problem sa " + file.getName());
-                    //e2.printStackTrace();
-                    Path fpath = Paths.get(whereToDownload + "\\" + file.getName()); //creates Path instance
-                    try {
-                        Path p = Files.createDirectory(fpath);
-                    } catch (IOException e) {
-                        e.printStackTrace();
-                    }
-                }
-            }
-        }
-
-    }
-    private boolean isFolder(String fileId){
-        String fileQuery = "'" + fileId + "' in parents and trashed=false";
-        FileList childrenList = null;
-        try {
-            childrenList = driveService.files().list().setQ(fileQuery).execute();
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-        if(childrenList.getFiles() == null || childrenList.getFiles().size() == 0){
-            return false;
-        }
-        return true;
-    }
-     */
-    @Override
-    public void download(String name, String whereToDownload) {
-        List<File> files = findFileByName(name);
-        if(files == null || files.isEmpty()){
-            System.out.println("error in method download: there is no file with name: " + name );
-            return;
-        }
-        if(files.size() > 1){
-            System.out.println("error in method download: there is more than 1 file with name: " + name);
-            return;
-        }
-        File f  = files.get(0);
-        String fileId = f.getId();
-
-        String fileQuery = "'" + fileId + "' in parents and trashed=false";
-        FileList childrenList = null;
-        try {
-            childrenList = driveService.files().list().setQ(fileQuery).execute();
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
         if(!isFolder(f)){ // ako nije folder, vec fajl, mozemo odmah da ga download-ujuemo
             try {
                 download1(fileId, whereToDownload, name);
@@ -310,8 +212,16 @@ public class GoogleDriveUser extends AbstractUser {
             }
             return;
         }
+
+        String fileQuery = "'" + fileId + "' in parents and trashed=false";
+        FileList childrenList = null;
+        try {
+            childrenList = driveService.files().list().setFields("nextPageToken, files(id, name, createdTime, mimeType, modifiedTime)").setQ(fileQuery).execute();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
         //PROBLEMI :
-        // 1) downloadovanje praznih foldera(i praznih fajlova)??--> problem je sto ja odredjujem da li je folder po tome da li ima decu, sta ako je prazan folder???
+        // 1) downloadovanje praznih fajlova je problem!!!
         // 2).png fajl se uspesno skine, ali nece da se prikaze slika(nije podrzan format)
         // 3)kod downlodovanja2 za google docs, sadrzaj fajla nije pregledan, nije citak
         Path filepath = Paths.get(whereToDownload + "\\" + name); //creates Path instance
@@ -369,7 +279,7 @@ public class GoogleDriveUser extends AbstractUser {
         try {
             result = driveService.files().list()
                     .setQ("name = '" + name + "'")
-                    .setFields("nextPageToken, files(id, name)")
+                    .setFields("nextPageToken, files(id, name, createdTime, mimeType, modifiedTime)")
                     .execute();
         } catch (IOException e) {
             e.printStackTrace();
@@ -491,13 +401,54 @@ public class GoogleDriveUser extends AbstractUser {
     }
 
     @Override
-    public Date getModificationDate(String s) {
-        return null;
+    public Object getModificationDate(String path) {
+        String array[] = path.split("/");
+        FileList result = null;
+        String s = array[array.length-1];
+        try {
+            result = driveService.files().list()
+                    .setQ("name='" + s + "'")
+                    .setFields("nextPageToken, files(id, name, createdTime, mimeType, modifiedTime)")
+                    .execute();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        List<File> files = result.getFiles();
+        if (files == null || files.isEmpty()) {
+            System.out.println("No files found.");
+            return null;
+        }
+        if (files.size() > 1) {
+            System.out.println("Error: more than one file with that name.");
+            return null;
+        }
+        return files.get(0).getModifiedTime();
     }
 
     @Override
-    public Date getCreationDate(String s) {
-        return null;
+    public Object getCreationDate(String path) {
+        String array[] = path.split("/");
+        FileList result = null;
+        String s = array[array.length-1];
+        try {
+            result = driveService.files().list()
+                    .setQ("name='" + s + "'")
+                    .setFields("nextPageToken, files(id, name, createdTime, mimeType, modifiedTime)")
+                    .execute();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        List<File> files = result.getFiles();
+        if (files == null || files.isEmpty()) {
+            System.out.println("No files found.");
+            return null;
+        }
+        if (files.size() > 1) {
+            System.out.println("Error: more than one file with that name.");
+            return null;
+        }
+        System.out.println(files.get(0).getCreatedTime());
+        return files.get(0).getCreatedTime();
     }
 
     @Override
