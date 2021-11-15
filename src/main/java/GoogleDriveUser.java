@@ -1,6 +1,7 @@
 import com.google.api.client.googleapis.javanet.GoogleNetHttpTransport;
 import com.google.api.client.http.FileContent;
 import com.google.api.client.http.javanet.NetHttpTransport;
+import com.google.api.client.util.DateTime;
 import com.google.api.services.drive.Drive;
 import com.google.api.services.drive.model.File;
 import com.google.api.services.drive.model.FileList;
@@ -14,15 +15,19 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.security.GeneralSecurityException;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 
-
+//Proveravamo privilegiju na pocetku svake operacije. Da bi to sad radilo moramo da
+// 1)imamo setovano polje currentActiveStorage
+// 2)ulogujemo se kao user-->KAKO TO??!!!!
 public class GoogleDriveUser extends AbstractUser {
     /**
      * Connection to the GoogleDrive
      */
     private final NetHttpTransport HTTP_TRANSPORT = GoogleNetHttpTransport.newTrustedTransport();
     private Drive driveService;
+    private String defaultLocalFileSystemLocation = "C:\\Users\\tadic\\Desktop";
 
     static {
         try {
@@ -81,6 +86,10 @@ public class GoogleDriveUser extends AbstractUser {
      * */
     @Override
     public void createDir(String dir, String path) {
+        if(!checkPrivilege(Privilege.UPLOAD)){
+            System.out.println("Nemate dovoljno visok nivo privilegije za ovu operaciju.");
+            return;
+        }
         if(!checkName(dir)){
             System.out.println("File with name: " + dir +  " already exists. Choose another name.");
             return;
@@ -102,9 +111,23 @@ public class GoogleDriveUser extends AbstractUser {
         }
         System.out.println("Folder ID: " + file.getId() + "; " + "folder name: "+ file.getName());
     }
-
+    /**
+    * Creates dir. In dir creates numberOfFiles files. Example: if namePrefix is myFile and numberOfFiles is 3. In dir will be created 3 empty files:
+     * myFile1 , myFile2, myFile3
+    * */
     @Override
-    public void createDir(String s, String s1, String s2, int i) {
+    public void createDir(String dirName, String path, String namePrefix, int numberOfFiles) {
+        if(!checkPrivilege(Privilege.UPLOAD)){
+            System.out.println("Nemate dovoljno visok nivo privilegije za ovu operaciju.");
+            return;
+        }
+        this.createDir(dirName, path);
+        List<File> files = this.findFileByName(dirName);
+
+        File myNewDir = files.get(0);
+        for(int i = 1; i <= numberOfFiles; i++){
+            createFile(namePrefix + i, path + "/myNewDir", this.defaultLocalFileSystemLocation, "text/plain");
+        }
 
     }
     /**
@@ -114,6 +137,10 @@ public class GoogleDriveUser extends AbstractUser {
      */
     @Override
     public void uploadExistingFile(String fileName, String pathWhereToCreateFile,  String pathOnMyComputer, String fileType) {
+        if(!checkPrivilege(Privilege.UPLOAD)){
+            System.out.println("Nemate dovoljno visok nivo privilegije za ovu operaciju.");
+            return;
+        }
         String folderId = this.findParentDirID(pathWhereToCreateFile);
         File fileMetadata = new File();
         fileMetadata.setName(fileName);
@@ -137,7 +164,14 @@ public class GoogleDriveUser extends AbstractUser {
      */
     @Override
     public void createFile(String fileName, String pathWhereToUploadFile, String pathOnMyComputer, String fileType) {
-        Path filepath = Paths.get(pathOnMyComputer); //creates Path instance
+        if(!checkPrivilege(Privilege.UPLOAD)){
+            System.out.println("Nemate dovoljno visok nivo privilegije za ovu operaciju.");
+            return;
+        }
+        if(pathOnMyComputer == null){
+           pathOnMyComputer = this.defaultLocalFileSystemLocation;
+        }
+        Path filepath = Paths.get(pathOnMyComputer + "\\" + fileName); //creates Path instance
         try
         {
             Path p= Files.createFile(filepath);     //creates empty file at specified location(path) on local file system
@@ -147,26 +181,92 @@ public class GoogleDriveUser extends AbstractUser {
         {
             e.printStackTrace();
         }
-        this.uploadExistingFile(fileName, pathWhereToUploadFile, pathOnMyComputer, fileType);
+        this.uploadExistingFile(fileName, pathWhereToUploadFile, pathOnMyComputer+ "\\" + fileName, fileType);
     }
 
     @Override
-    public void move(Collection<String> collection, String s) {
-
+    public void move(Collection<String> fileCollection, String pathWhereToMoveIt) {
+        if(!checkPrivilege(Privilege.DELETE)){
+            System.out.println("Nemate dovoljno visok nivo privilegije za ovu operaciju.");
+            return;
+        }
+        for (String f: fileCollection) {
+            move(f, pathWhereToMoveIt);
+        }
     }
 
     @Override
-    public void move(String s, String s1) {
+    public void move(String f, String pathWhereToMoveIt) {
+        if(!checkPrivilege(Privilege.DELETE)){
+            System.out.println("Nemate dovoljno visok nivo privilegije za ovu operaciju.");
+            return;
+        }
+        //Ukoliko korisnik zada celu putanju, uzima se samo poslednji fajl u putanji, zato sto znamo da su imena jedinstvena na nivou skladista
+        String array[] = f.split("/");
+        f = array[array.length-1];
 
+        List<File> files = findFileByName(f);
+        if(files == null || files.size() == 0 ){
+            System.out.println("Error in method move: can not find file with name '" + f + "'");
+            return;
+        }
+        if(files.size() > 1){
+            System.out.println("Error in method move: more then one file with name '" + f + "'");
+            return;
+        }
+        String fileId = files.get(0).getId();
+
+        //Isto kao gore, ako zada celu putanju gde zeli da premesti fajl, radimo isto
+        String arr[] = pathWhereToMoveIt.split("/");
+        pathWhereToMoveIt = arr[arr.length-1];
+        List<File> folders = findFileByName(pathWhereToMoveIt);
+        if(folders == null || folders.size() == 0 ){
+            System.out.println("Error in method move: can not find folder with name + '" + pathWhereToMoveIt + "'");
+            return;
+        }
+        if(folders.size() > 1){
+            System.out.println("Error in method move: more then one folder with name + '" + pathWhereToMoveIt + "'");
+            return;
+        }
+        String folderId = folders.get(0).getId();
+
+        // Retrieve the existing parents to remove
+        File file = null;
+        try {
+            file = driveService.files().get(fileId)
+                    .setFields("parents")
+                    .execute();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        StringBuilder previousParents = new StringBuilder();
+        for (String parent : file.getParents()) {
+            previousParents.append(parent);
+            previousParents.append(',');
+        }
+        // Move the file to the new folder
+        try {
+            file = driveService.files().update(fileId, null)
+                    .setAddParents(folderId)
+                    .setRemoveParents(previousParents.toString())
+                    .setFields("id, parents")
+                    .execute();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
     }
 
     @Override
     public void delete(String name) {
+        if(!checkPrivilege(Privilege.DELETE)){
+            System.out.println("Nemate dovoljno visok nivo privilegije za ovu operaciju.");
+            return;
+        }
         FileList result = null;
         try {
             result = driveService.files().list()
                     .setQ("name = '" + name + "'")
-                    .setFields("nextPageToken, files(id, name)")
+                    .setFields("nextPageToken, files(id, name, size, mimeType, creationDate, modifiedDate)")
                     .execute();
         } catch (IOException e) {
             e.printStackTrace();
@@ -186,8 +286,18 @@ public class GoogleDriveUser extends AbstractUser {
             e.printStackTrace();
         }
     }
+    //PROBLEM SA PRAZNIM FAjlovima, problem sa slikama(skine ih, al nece da ih otvori), problem sa google docs fajlovima(skine ih, ali random karakteri, necitljivo)
     @Override
     public void download(String name, String whereToDownload) {
+        if(!checkPrivilege(Privilege.DOWNLOAD)){
+            System.out.println("Nemate dovoljno visok nivo privilegije za ovu operaciju.");
+            return;
+        }
+        if(whereToDownload == null || whereToDownload == ""){
+            whereToDownload = this.defaultLocalFileSystemLocation;
+        }
+        String array[] = name.split("/");
+        name = array[array.length-1];
         List<File> files = findFileByName(name);
         if(files == null || files.isEmpty()){
             System.out.println("error in method download: there is no file with name: " + name );
@@ -220,10 +330,7 @@ public class GoogleDriveUser extends AbstractUser {
         } catch (IOException e) {
             e.printStackTrace();
         }
-        //PROBLEMI :
-        // 1) downloadovanje praznih fajlova je problem!!!
-        // 2).png fajl se uspesno skine, ali nece da se prikaze slika(nije podrzan format)
-        // 3)kod downlodovanja2 za google docs, sadrzaj fajla nije pregledan, nije citak
+
         Path filepath = Paths.get(whereToDownload + "\\" + name); //creates Path instance
         try {
             Path p = Files.createDirectory(filepath);
@@ -248,51 +355,15 @@ public class GoogleDriveUser extends AbstractUser {
         }
 
     }
-    private boolean isFolder(File file){
-
-        if(file.getMimeType() != null && file.getMimeType().equalsIgnoreCase("application/vnd.google-apps.folder")){
-            return true;
-        }
-        return false;
-    }
-    private void download1(String fileId, String whereToDownload, String name) throws IOException {//za obicne(npr .txt )fajlove
-        OutputStream outputStream = new ByteArrayOutputStream();
-        driveService.files().get(fileId)
-                .executeMediaAndDownloadTo(outputStream);
-        Path filepath = Paths.get(whereToDownload + "\\" + name); //creates Path instance
-        Path p = Files.createFile(filepath);
-        List<String> lines = Arrays.asList(outputStream.toString());
-        Files.write(Paths.get(whereToDownload + "\\" + name), lines, StandardCharsets.UTF_8);
-    }
-    private void download2(String fileId, String whereToDownload, String name) throws IOException {//za google docs fajlove
-        OutputStream outputStream = new ByteArrayOutputStream();
-        driveService.files().export(fileId, "application/zip").executeMediaAndDownloadTo(outputStream);
-        outputStream.flush();
-        Path filepath = Paths.get(whereToDownload + "\\" + name); //creates Path instance
-        Path p= Files.createFile(filepath);
-        List<String> lines = Arrays.asList(outputStream.toString());
-        Files.write(Paths.get(whereToDownload + "\\" + name), lines);
-        outputStream.close();
-    }
-    private List<File> findFileByName(String name){
-        FileList result = null;
-        try {
-            result = driveService.files().list()
-                    .setQ("name = '" + name + "'")
-                    .setFields("nextPageToken, files(id, name, createdTime, mimeType, modifiedTime)")
-                    .execute();
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-        List<File> files = result.getFiles();
-        return files;
-    }
 
     //PROBLEM: ne radi kada se prosledi cela putanja, npr: mojeSkladiste/dir1; radi samo sa dir1-->srediti
     //RESENO: ako korisnik unese celu putanju, mi uzimamo samo poslednji naziv zato sto znamo da su imena jedinstvena na nivou skladista
     @Override
     public Collection<String> searchFilesInDir(String dir) {
-
+        if(!checkPrivilege(Privilege.READ)){
+            System.out.println("Nemate dovoljno visok nivo privilegije za ovu operaciju.");
+            return null;
+        }
         String pathToDir[] = dir.split("/");
 
         FileList result = null;
@@ -321,6 +392,10 @@ public class GoogleDriveUser extends AbstractUser {
 
     @Override
     public Collection<String> searchDirsInDir(String dir) {
+        if(!checkPrivilege(Privilege.READ)){
+            System.out.println("Nemate dovoljno visok nivo privilegije za ovu operaciju.");
+            return null;
+        }
         String pathToDir[] = dir.split("/");
 
         FileList result = null;
@@ -346,15 +421,18 @@ public class GoogleDriveUser extends AbstractUser {
         return fileNames;
     }
 
-    //OVA METODA NEMA SMISLA...
+    //OVA METODA NEMA SMISLA...treba da vrati putanju fajla, popraviti!
     @Override
     public Collection<String> searchByName(String name) {//iako vraca kolekciju stringova, vratice uvek kolekciju sa samo jednim clanom, zato sto su imena
-                                                        // jedinstvena na nivou skladista
+        if(!checkPrivilege(Privilege.READ)){
+            System.out.println("Nemate dovoljno visok nivo privilegije za ovu operaciju.");
+            return null;
+        }                                                // jedinstvena na nivou skladista
         FileList result = null;
         try {
             result = driveService.files().list()
                     .setQ("name = '" + name + "'")
-                    .setFields("nextPageToken, files(id, name)")
+                    .setFields("nextPageToken, files(id, name, parents)")
                     .execute();
         } catch (IOException e) {
             e.printStackTrace();
@@ -373,6 +451,10 @@ public class GoogleDriveUser extends AbstractUser {
 
     @Override
     public Collection<String> searchByExtension(String extention) {
+        if(!checkPrivilege(Privilege.READ)){
+            System.out.println("Nemate dovoljno visok nivo privilegije za ovu operaciju.");
+            return null;
+        }
         String pageToken = null;
         ArrayList fileNames = new ArrayList();
         do {
@@ -395,13 +477,45 @@ public class GoogleDriveUser extends AbstractUser {
         return fileNames;
     }
 
+    //PROBLEM: Resenja.zip ide pre aaa i pre bbb(folder bla) ; zasto???
     @Override
-    public Collection<String> searchByNameSorted(String s) {
-        return null;
+    public Collection<String> getFilesInDirSortedByName(String dir) {
+        if(!checkPrivilege(Privilege.READ)){
+            System.out.println("Nemate dovoljno visok nivo privilegije za ovu operaciju.");
+            return null;
+        }
+        String pathToDir[] = dir.split("/");
+
+        FileList result = null;
+        String fileId = findFileByName(pathToDir[pathToDir.length-1]).get(0).getId();
+        String fileQuery = "'" + fileId + "' in parents and trashed=false";
+        try {
+            result = driveService.files().list()
+                    .setFields("nextPageToken, files(id, name)")
+                    .setQ(fileQuery)
+                    .execute();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        List<File> files = result.getFiles();
+        if (files == null || files.isEmpty()) {
+            System.out.println("No files found.");
+            return null;
+        }
+        List<String> fileNames = new ArrayList<>();
+        for(File f: files){
+            fileNames.add(f.getName());
+        }
+        Collections.sort(fileNames);
+        return fileNames;
     }
 
     @Override
     public Object getModificationDate(String path) {
+        if(!checkPrivilege(Privilege.READ)){
+            System.out.println("Nemate dovoljno visok nivo privilegije za ovu operaciju.");
+            return null;
+        }
         String array[] = path.split("/");
         FileList result = null;
         String s = array[array.length-1];
@@ -427,6 +541,10 @@ public class GoogleDriveUser extends AbstractUser {
 
     @Override
     public Object getCreationDate(String path) {
+        if(!checkPrivilege(Privilege.READ)){
+            System.out.println("Nemate dovoljno visok nivo privilegije za ovu operaciju.");
+            return null;
+        }
         String array[] = path.split("/");
         FileList result = null;
         String s = array[array.length-1];
@@ -451,20 +569,38 @@ public class GoogleDriveUser extends AbstractUser {
         return files.get(0).getCreatedTime();
     }
 
+    //odnosi se na celo skladiste
     @Override
     public Collection<String> searchByDateCreationRange(Date date, Date date1) {
+
         return null;
     }
-
+    //PROBLEM: Ne radi kako treba, izmeniti skroz!!!
     @Override
-    public Collection<String> searchFilesInDirByDateCreationRange(Date date, Date date1, String s) {
-        return null;
+    public Collection<String> searchFilesInDirByDateCreationRange(Date date1, Date date2, String dir) {
+        if(!checkPrivilege(Privilege.READ)){
+            System.out.println("Nemate dovoljno visok nivo privilegije za ovu operaciju.");
+            return null;
+        }
+        List<File> files = getFileObjectsInDir(dir);
+        if (files == null || files.isEmpty()) {
+            System.out.println("No files found.");
+            return null;
+        }
+        List<String> result = new ArrayList<>();
+        for(File f: files){
+            DateTime dt = f.getCreatedTime();
+            if(dt.getValue() > date1.getTime() && dt.getValue() < date2.getTime()){
+                result.add(f.getName());
+            }
+        }
+        return result;
     }
 
     @Override
     public void setStorageSize(int size, Storage storage) {
-        if(super.getStoragesAndPrivileges().get(storage) != Privilege.ADMIN){
-            System.out.println("Samo admin moze da definise velicinu skladista u bajtovima");
+        if(!checkPrivilege(Privilege.ADMIN)){
+            System.out.println("Nemate dovoljno visok nivo privilegije za ovu operaciju.");
             return;
         }
         storage.setStorageSize(size);
@@ -472,8 +608,8 @@ public class GoogleDriveUser extends AbstractUser {
 
     @Override
     public void setForbiddenExtensions(Collection<String> ext, Storage storage) {
-        if(super.getStoragesAndPrivileges().get(storage) != Privilege.ADMIN){
-            System.out.println("Samo admin moze da definise koje su zabranjene ekstenzije u skladistu");
+        if(!checkPrivilege(Privilege.ADMIN)){
+            System.out.println("Nemate dovoljno visok nivo privilegije za ovu operaciju.");
             return;
         }
         storage.setForbiddenExtensions(ext);
@@ -486,8 +622,8 @@ public class GoogleDriveUser extends AbstractUser {
 
     @Override
     public void addUser(AbstractUser abstractUser, Storage storage, Privilege privilege) {
-        if(super.getStoragesAndPrivileges().get(storage) != Privilege.ADMIN){
-            System.out.println("Samo admin moze da doda korisnika");
+        if(!checkPrivilege(Privilege.ADMIN)){
+            System.out.println("Nemate dovoljno visok nivo privilegije za ovu operaciju.");
             return;
         }
         storage.addUser(abstractUser);//sluzi da storage zna da ovaj user moze da mu pristupi
@@ -496,12 +632,58 @@ public class GoogleDriveUser extends AbstractUser {
 
     @Override
     public void removeUser(AbstractUser abstractUser, Storage storage) {
-        if(super.getStoragesAndPrivileges().get(storage) != Privilege.ADMIN){
-            System.out.println("Samo admin moze da obrise korisnika");
+        if(!checkPrivilege(Privilege.ADMIN)){
+            System.out.println("Nemate dovoljno visok nivo privilegije za ovu operaciju.");
             return;
         }
         storage.removeUser(abstractUser);
         abstractUser.removeStorage(storage);
+    }
+    private List<File> getFileObjectsInDir(String dir){
+        String pathToDir[] = dir.split("/");
+        FileList result = null;
+        String fileId = findFileByName(pathToDir[pathToDir.length-1]).get(0).getId();
+        String fileQuery = "'" + fileId + "' in parents and trashed=false";
+        try {
+            result = driveService.files().list()
+                    .setFields("nextPageToken, files(id, name, createdTime, mimeType, modifiedTime)")
+                    .setQ(fileQuery)
+                    .execute();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        if(result == null){
+            return null;
+        }
+        List<File> files = result.getFiles();
+        return files;
+
+    }
+    private boolean isFolder(File file){
+
+        if(file.getMimeType() != null && file.getMimeType().equalsIgnoreCase("application/vnd.google-apps.folder")){
+            return true;
+        }
+        return false;
+    }
+    private void download1(String fileId, String whereToDownload, String name) throws IOException {//za obicne(npr .txt )fajlove
+        OutputStream outputStream = new ByteArrayOutputStream();
+        driveService.files().get(fileId)
+                .executeMediaAndDownloadTo(outputStream);
+        Path filepath = Paths.get(whereToDownload + "\\" + name); //creates Path instance
+        Path p = Files.createFile(filepath);
+        List<String> lines = Arrays.asList(outputStream.toString());
+        Files.write(Paths.get(whereToDownload + "\\" + name), lines, StandardCharsets.UTF_8);
+    }
+    private void download2(String fileId, String whereToDownload, String name) throws IOException {//za google docs fajlove
+        OutputStream outputStream = new ByteArrayOutputStream();
+        driveService.files().export(fileId, "application/zip").executeMediaAndDownloadTo(outputStream);
+        outputStream.flush();
+        Path filepath = Paths.get(whereToDownload + "\\" + name); //creates Path instance
+        Path p= Files.createFile(filepath);
+        List<String> lines = Arrays.asList(outputStream.toString());
+        Files.write(Paths.get(whereToDownload + "\\" + name), lines);
+        outputStream.close();
     }
     private String findStorageID(String storageName){
         for (Storage storage: super.getStoragesAndPrivileges().keySet()) {
@@ -560,5 +742,35 @@ public class GoogleDriveUser extends AbstractUser {
             }
         }
         return true;
+    }
+    //PROBLEM: sta ako se prosledi cela putanja, a ne samo ime fajla: npr: myStorage/dir1/file1
+    //RESENJE: pre poziva ove metode uvek se parsira ulazni string tako da se ovoj metodi uvek prosledi samo ime fajla, a ne cela putanja
+    private List<File> findFileByName(String name){
+        FileList result = null;
+        try {
+            result = driveService.files().list()
+                    .setQ("name = '" + name + "'")
+                    .setFields("nextPageToken, files(id, name, createdTime, mimeType, modifiedTime, size)")
+                    .execute();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        List<File> files = result.getFiles();
+        return files;
+    }
+    /**
+     * Checks if this user has enough level of privilege(for currentActiveStorage) for operation that needs given minimumPrivilegeLevel
+     * */
+    private boolean checkPrivilege(Privilege minimumPrivilegeLevel){
+        Privilege privilege = null;
+        for (Storage st: super.getStoragesAndPrivileges().keySet()) {
+            if(st.getStorageID().equalsIgnoreCase(super.getCurrentActiveStorage().getStorageID())){
+               privilege = super.getStoragesAndPrivileges().get(st);
+            }
+        }
+        if(privilege != null && privilege.ordinal() >= minimumPrivilegeLevel.ordinal()){
+            return true;
+        }
+        return false;
     }
 }

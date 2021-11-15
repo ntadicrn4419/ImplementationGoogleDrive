@@ -4,6 +4,8 @@ import com.google.api.client.util.DateTime;
 import com.google.api.services.drive.Drive;
 import com.google.api.services.drive.model.FileList;
 import storageSpec.AbstractUser;
+import storageSpec.Storage;
+import storageSpec.UserManager;
 
 import java.io.File;
 import java.io.IOException;
@@ -12,13 +14,40 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.security.GeneralSecurityException;
 import java.util.ArrayList;
+import java.util.Calendar;
+import java.util.Date;
 import java.util.List;
 
 public class TestClass {//delete this class later
     public static void main(String... args) throws IOException, GeneralSecurityException {
-          AbstractUser user = new GoogleDriveUser();
-          user.download("bla", "C:\\Users\\tadic\\Downloads");
-//          user.initStorage("sss", "drive");
+        try {
+            Class.forName("GoogleDriveUser");
+        } catch (ClassNotFoundException e) {
+            e.printStackTrace();
+        }
+
+        AbstractUser user = UserManager.getUser("ntadic4419rn","myPassword", null);
+        //user.initStorage("moje novo sk", "google drive");
+//        Storage s = new Storage("bla", user, "rootLocation", "id");
+//        user.setCurrentActiveStorage(s);
+//            ArrayList<String> a = (ArrayList<String>) user.getFilesInDirSortedByName("bla");
+//            for(String s: a){
+//                System.out.println(s);
+//            }
+//            List<String> list = new ArrayList<>();
+//            list.add("www");
+//            list.add("Resenja.zip");
+//            user.move(list, "bla");
+
+
+           // user.move("bla/dasda/aaa.txt", "bla/dasda");
+        //user.download("bla", "C:\\Users\\tadic\\Downloads");
+           // user.searchByName("lolololo");
+           // user.initStorage("storage!", "drive");
+            //user.createFile("fileName222", "storage!", "C:\\Users\\tadic\\Desktop", "/txt");
+            //user.createDir("myNewDir", "storage!", "fajl br", 5);
+
+        //user.download("bla", "C:\\Users\\tadic\\Downloads");
 //          DateTime dt = (DateTime) user.getCreationDate("sss");
 
         //System.out.println(dt.toString());
@@ -40,7 +69,7 @@ public class TestClass {//delete this class later
 //        user.setPassword("mypass");
 //        user.initStorage("skladisteTest", "drive");
 //
-//        user.createFile("fileName", "skladisteTest", "C:\\Users\\tadic\\Desktop\\novoKreirianFajl.txt", "/txt");
+
 //
 //        user.createDir("dir1", "skladisteTest");
 //        user.createDir("dir2", "skladisteTest/dir1");
