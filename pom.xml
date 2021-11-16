@@ -34,6 +34,11 @@
             <artifactId>google-api-services-drive</artifactId>
             <version>v3-rev110-1.23.0</version>
         </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+            <version>2.10.0</version>
+        </dependency>
     </dependencies>
 <!--    <build>-->
 <!--        <resources>-->

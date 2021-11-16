@@ -1,3 +1,10 @@
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.util.DefaultPrettyPrinter;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.ObjectWriter;
+import com.fasterxml.jackson.databind.SequenceWriter;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.api.client.googleapis.javanet.GoogleNetHttpTransport;
 import com.google.api.client.http.FileContent;
 import com.google.api.client.http.javanet.NetHttpTransport;
@@ -7,15 +14,13 @@ import com.google.api.services.drive.model.File;
 import com.google.api.services.drive.model.FileList;
 import storageSpec.*;
 
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.io.OutputStream;
+import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
 import java.security.GeneralSecurityException;
-import java.time.format.DateTimeFormatter;
 import java.util.*;
 
 //Proveravamo privilegiju na pocetku svake operacije. Da bi to sad radilo moramo da
@@ -32,6 +37,7 @@ public class GoogleDriveUser extends AbstractUser {
     static {
         try {
             UserManager.registerUser(new GoogleDriveUser());
+            UserManager.registerUserSerializator(new UserSerialization());
         } catch (GeneralSecurityException e) {
             e.printStackTrace();
         } catch (IOException e) {
@@ -72,10 +78,10 @@ public class GoogleDriveUser extends AbstractUser {
         System.out.println("Folder ID: " + file.getId() + "; " + "folder name: "+ file.getName());
 
         Storage storage = new Storage(storageName, this, rootLocation, file.getId());
-        super.addStorage(storage, Privilege.ADMIN);
+        super.addStorage(storage.getStorageID(), Privilege.ADMIN);
+        super.setCurrentActiveStorage(storage);
 
     }
-
     @Override
     public void saveStorageData() {
 
@@ -627,7 +633,7 @@ public class GoogleDriveUser extends AbstractUser {
             return;
         }
         storage.addUser(abstractUser);//sluzi da storage zna da ovaj user moze da mu pristupi
-        abstractUser.addStorage(storage, privilege);//sluzi da user zna da za ovaj storage ima ovaj nivo privilegije
+        abstractUser.addStorage(storage.getStorageID(), privilege);//sluzi da user zna da za ovaj storage ima ovaj nivo privilegije
     }
 
     @Override
@@ -637,7 +643,7 @@ public class GoogleDriveUser extends AbstractUser {
             return;
         }
         storage.removeUser(abstractUser);
-        abstractUser.removeStorage(storage);
+        abstractUser.removeStorage(storage.getStorageID());
     }
     private List<File> getFileObjectsInDir(String dir){
         String pathToDir[] = dir.split("/");
@@ -685,21 +691,8 @@ public class GoogleDriveUser extends AbstractUser {
         Files.write(Paths.get(whereToDownload + "\\" + name), lines);
         outputStream.close();
     }
-    private String findStorageID(String storageName){
-        for (Storage storage: super.getStoragesAndPrivileges().keySet()) {
-            if(storage.getStorageName().equalsIgnoreCase(storageName)){
-                return  storage.getStorageID();
-            }
-        }
-        System.out.println("ERROR: ID for storage with name: " + storageName + " has not been found");
-        return null;
-    }
-
     private String findParentDirID(String path){
         String[] array = path.split("/");
-        if(array.length == 1){//ako pravimo fajl(folder) direktno u korenksom direktorijumu skladista
-            return findStorageID(array[0]);
-        }
         String parentName = array[array.length-1];
         String storageName = array[0];
         FileList result = null;
@@ -763,9 +756,9 @@ public class GoogleDriveUser extends AbstractUser {
      * */
     private boolean checkPrivilege(Privilege minimumPrivilegeLevel){
         Privilege privilege = null;
-        for (Storage st: super.getStoragesAndPrivileges().keySet()) {
-            if(st.getStorageID().equalsIgnoreCase(super.getCurrentActiveStorage().getStorageID())){
-               privilege = super.getStoragesAndPrivileges().get(st);
+        for (String stID: super.getStoragesAndPrivileges().keySet()) {
+            if(stID.equalsIgnoreCase(super.getCurrentActiveStorage().getStorageID())){
+               privilege = super.getStoragesAndPrivileges().get(stID);
             }
         }
         if(privilege != null && privilege.ordinal() >= minimumPrivilegeLevel.ordinal()){

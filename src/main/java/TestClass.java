@@ -1,22 +1,22 @@
+import com.fasterxml.jackson.core.JsonParser;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.api.client.googleapis.javanet.GoogleNetHttpTransport;
 import com.google.api.client.http.javanet.NetHttpTransport;
 import com.google.api.client.util.DateTime;
 import com.google.api.services.drive.Drive;
 import com.google.api.services.drive.model.FileList;
-import storageSpec.AbstractUser;
-import storageSpec.Storage;
-import storageSpec.UserManager;
+import storageSpec.*;
 
-import java.io.File;
-import java.io.IOException;
+import java.io.*;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
 import java.security.GeneralSecurityException;
-import java.util.ArrayList;
-import java.util.Calendar;
-import java.util.Date;
-import java.util.List;
+import java.util.*;
 
 public class TestClass {//delete this class later
     public static void main(String... args) throws IOException, GeneralSecurityException {
@@ -26,56 +26,67 @@ public class TestClass {//delete this class later
             e.printStackTrace();
         }
 
-        AbstractUser user = UserManager.getUser("ntadic4419rn","myPassword", null);
-        //user.initStorage("moje novo sk", "google drive");
-//        Storage s = new Storage("bla", user, "rootLocation", "id");
-//        user.setCurrentActiveStorage(s);
-//            ArrayList<String> a = (ArrayList<String>) user.getFilesInDirSortedByName("bla");
-//            for(String s: a){
-//                System.out.println(s);
-//            }
-//            List<String> list = new ArrayList<>();
-//            list.add("www");
-//            list.add("Resenja.zip");
-//            user.move(list, "bla");
+        //AbstractUser user = UserManager.getUser("ntadic4419rn","TadicPassword", null);
+        ISerialization serializator = UserManager.getUserSerializator();
+        //serializator.saveUserData("users.json", user);
+        String[] credentials = login();
+        List<UserData> list = serializator.readSavedUsers("users.json");
+        for(UserData ud: list){
+            if(ud.getUserName().equalsIgnoreCase(credentials[0]) && ud.getPassword().equalsIgnoreCase(credentials[1])){
+                System.out.println("Uspesno ste se ulogovali");
+            }
+        }
 
+        //user.initStorage("myNewstorageH", "drive");
 
-           // user.move("bla/dasda/aaa.txt", "bla/dasda");
-        //user.download("bla", "C:\\Users\\tadic\\Downloads");
-           // user.searchByName("lolololo");
-           // user.initStorage("storage!", "drive");
-            //user.createFile("fileName222", "storage!", "C:\\Users\\tadic\\Desktop", "/txt");
-            //user.createDir("myNewDir", "storage!", "fajl br", 5);
-
-        //user.download("bla", "C:\\Users\\tadic\\Downloads");
-//          DateTime dt = (DateTime) user.getCreationDate("sss");
-
-        //System.out.println(dt.toString());
-//          ArrayList<String> a = new ArrayList<>();
-//          user.initStorage("ms", "drive");
-//          user.uploadExistingFile("3b", "ms", "C:\\Users\\tadic\\Desktop\\3b.txt","/txt" );
-
-//          a = (ArrayList<String>) user.searchByExtension("application/vnd.google-apps.folder");
-//            for(String s: a){
-//                System.out.println(s);
-//            }
-//          user.initStorage("mojeSkladiste", "drive");
-//          user.createDir("dir1", "mojeSkladiste");
-//          user.uploadExistingFile("3b", "mojeSkladiste/dir1", "C:\\Users\\tadic\\Desktop\\3b.txt","/txt" );
-//          user.download("mojeSkladiste", "C:\\Users\\tadic\\Downloads");
-
-//        user.delete("bzvz");
-//        user.setUserName("ntadic");
-//        user.setPassword("mypass");
-//        user.initStorage("skladisteTest", "drive");
-//
-
-//
-//        user.createDir("dir1", "skladisteTest");
-//        user.createDir("dir2", "skladisteTest/dir1");
-//        user.createDir("dir3", "skladisteTest");
-//        user.createDir("dir4", "skladisteTest/dir1/dir2");
-//        user.uploadExistingFile("mojNoviFajl","skladisteTest/dir1/dir2/dir4" ,"C:\\Users\\tadic\\Desktop\\aaa.txt","/txt");
 
     }
+    public static String[] login(){
+        Scanner sc = new Scanner(System.in);
+        System.out.println("Unesite username: ");
+        String username = sc.nextLine();
+        System.out.println("Unesite password: ");
+        String password = sc.nextLine();
+        String credentials[] = {username, password};
+        return credentials;
+    }
+    /*
+    public void saveUserData(String filePath, AbstractUser user) {
+        try {
+            ObjectMapper objectMapper = new ObjectMapper();
+
+            UserSerialization us = new UserSerialization();
+            us.setUserName(user.getUserName());
+            us.setPassword(user.getPassword());
+            us.setStoragesAndPrivileges(user.getStoragesAndPrivileges());
+
+            String json = objectMapper.writeValueAsString(us);
+            java.io.File file = new java.io.File(filePath);
+            Files.write(file.toPath(), Arrays.asList(json), StandardOpenOption.APPEND);
+
+        } catch (Exception ex) {
+            ex.printStackTrace();
+        }
+    }
+    public static List<UserSerialization> readSavedUsers(String filePath){
+        List<UserSerialization> myUsers = new ArrayList<>();
+        try {
+            ObjectMapper objectMapper = new ObjectMapper();
+            UserSerialization us;
+            Scanner scanner = new Scanner(new File(filePath));
+            while (scanner.hasNextLine()) {
+                String line = scanner.nextLine();
+                us = objectMapper.readValue(line, UserSerialization.class);
+                myUsers.add(us);
+            }
+            for(UserSerialization u: myUsers){
+                System.out.println(u.getUserName() + ", " + u.getPassword());
+            }
+
+        } catch (Exception ex) {
+            ex.printStackTrace();
+        }
+        return myUsers;
+    }
+    */
 }
