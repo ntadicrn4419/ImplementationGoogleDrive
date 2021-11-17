@@ -1,10 +1,3 @@
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.core.util.DefaultPrettyPrinter;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.ObjectWriter;
-import com.fasterxml.jackson.databind.SequenceWriter;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.api.client.googleapis.javanet.GoogleNetHttpTransport;
 import com.google.api.client.http.FileContent;
 import com.google.api.client.http.javanet.NetHttpTransport;
@@ -19,20 +12,16 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.nio.file.StandardOpenOption;
 import java.security.GeneralSecurityException;
 import java.util.*;
 
-//Proveravamo privilegiju na pocetku svake operacije. Da bi to sad radilo moramo da
-// 1)imamo setovano polje currentActiveStorage
-// 2)ulogujemo se kao user-->KAKO TO??!!!!
 public class GoogleDriveUser extends AbstractUser {
     /**
      * Connection to the GoogleDrive
      */
     private final NetHttpTransport HTTP_TRANSPORT = GoogleNetHttpTransport.newTrustedTransport();
     private Drive driveService;
-    private String defaultLocalFileSystemLocation = "C:\\Users\\tadic\\Desktop";
+    private String defaultLocalFileSystemLocation = "C:\\Users\\Luka\\Desktop";
 
     static {
         try {
@@ -56,31 +45,75 @@ public class GoogleDriveUser extends AbstractUser {
      * Created storage is added in map of storages and priveleges.
      */
     @Override
-    public void initStorage(String storageName, String rootLocation) {
-        if(!checkName(storageName)){
-            System.out.println("File with name: " + storageName +  " already exists. Choose another name.");
-            return;
+    public void initStorage(String storageName) {
+        if(doesStorageExist(storageName)){
+            if(storageHasJsonUsers(storageName)){
+                System.out.println("Storage postoji, morate da se ulogujete:");
+
+                Scanner sc = new Scanner(System.in);
+                System.out.println("Unesite username:");
+                String username = sc.nextLine();
+                System.out.println("Unesite password:");
+                String password = sc.nextLine();
+
+                ISerialization ser = UserManager.getUserSerializator();
+                ((UserSerialization)ser).setDefaultLocalPath(this.defaultLocalFileSystemLocation);
+                List<UserData>usersdata = ser.readSavedUsers(storageName + "/users.json");
+                boolean flag = false;
+                for(UserData ud: usersdata){
+                    if(ud.getUserName().equalsIgnoreCase(username) && ud.getPassword().equals(password)){
+                        this.setUserName(ud.getUserName());
+                        this.setPassword(ud.getPassword());
+                        this.setStoragesAndPrivileges(ud.getStoragesAndPrivileges());
+                        flag = true;
+                    }
+                }
+                if(!flag){
+                    System.out.println("Nemate pristup ovom skladistu.");
+                    return;
+                }
+                System.out.println("Uspesno ste se ulogovali.");
+                String id = getFileIdByName(storageName);
+                Storage storage = new Storage(storageName, this, "drive", id);
+                this.setCurrentActiveStorage(storage);
+                return;
+            }else{
+                System.out.println("Ime je zauzeto. Pokusajte da unesete drugi naziv");
+                return;
+            }
+        }else{
+            System.out.println("Storage ne postoji. Napravite novi nalog.");
+            Scanner sc = new Scanner(System.in);
+            System.out.println("Unesite username:");
+            String username = sc.nextLine();
+            System.out.println("Unesite password:");
+            String password = sc.nextLine();
+
+            this.setUserName(username);
+            this.setPassword(password);
+
+            File fileMetadata = new File();
+            fileMetadata.setName(storageName);
+            fileMetadata.setMimeType("application/vnd.google-apps.folder");
+
+            File file = null;
+            try {
+                file = driveService.files().create(fileMetadata)
+                        .setFields("id")
+                        .execute();
+                file.setName(storageName);
+                file.setMimeType("application/vnd.google-apps.folder");
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+            System.out.println("Kreiran je storage: " + file.getId() + "; " + "storage name: "+ file.getName());
+            Storage storage = new Storage(storageName, this, "drive", file.getId());
+            this.addStorage(file.getId(), Privilege.ADMIN);
+            this.setCurrentActiveStorage(storage);
+
+            //kreiramo json file sa userima u ovom storage-u
+            this.createUsersJson(this.defaultLocalFileSystemLocation, storageName);
         }
-        File fileMetadata = new File();
-        fileMetadata.setName(storageName);
-        fileMetadata.setMimeType("application/vnd.google-apps.folder");
-
-        File file = null;
-        try {
-            file = driveService.files().create(fileMetadata)
-                    .setFields("id")
-                    .execute();
-            file.setName(storageName);
-            file.setMimeType("application/vnd.google-apps.folder");//dodato
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-        System.out.println("Folder ID: " + file.getId() + "; " + "folder name: "+ file.getName());
-
-        Storage storage = new Storage(storageName, this, rootLocation, file.getId());
-        super.addStorage(storage.getStorageID(), Privilege.ADMIN);
-        super.setCurrentActiveStorage(storage);
-
     }
     @Override
     public void saveStorageData() {
@@ -96,7 +129,7 @@ public class GoogleDriveUser extends AbstractUser {
             System.out.println("Nemate dovoljno visok nivo privilegije za ovu operaciju.");
             return;
         }
-        if(!checkName(dir)){
+        if(!doesStorageExist(dir)){
             System.out.println("File with name: " + dir +  " already exists. Choose another name.");
             return;
         }
@@ -296,8 +329,11 @@ public class GoogleDriveUser extends AbstractUser {
     @Override
     public void download(String name, String whereToDownload) {
         if(!checkPrivilege(Privilege.DOWNLOAD)){
-            System.out.println("Nemate dovoljno visok nivo privilegije za ovu operaciju.");
-            return;
+            if(this.getStoragesAndPrivileges().size() != 0){
+                System.out.println("download metoda: Nemate dovoljno visok nivo privilegije za ovu operaciju.");
+                return;
+            }
+
         }
         if(whereToDownload == null || whereToDownload == ""){
             whereToDownload = this.defaultLocalFileSystemLocation;
@@ -305,18 +341,21 @@ public class GoogleDriveUser extends AbstractUser {
         String array[] = name.split("/");
         name = array[array.length-1];
         List<File> files = findFileByName(name);
-        if(files == null || files.isEmpty()){
-            System.out.println("error in method download: there is no file with name: " + name );
+        String fileId = null;
+        File fl = null;
+        for(File f: files){
+            //System.out.println("Roditelji: " + f.getParents() + "trazimo: " + array[0]);
+            if(f.getParents().contains(this.getFileIdByName(array[0]))){
+                fileId = f.getId();
+                fl = f;
+                break;
+            }
+        }
+        if(fl == null){
+            System.out.println("Error in download");
             return;
         }
-        if(files.size() > 1){
-            System.out.println("error in method download: there is more than 1 file with name: " + name);
-            return;
-        }
-        File f  = files.get(0);
-        String fileId = f.getId();
-
-        if(!isFolder(f)){ // ako nije folder, vec fajl, mozemo odmah da ga download-ujuemo
+        if(!isFolder(fl)){ // ako nije folder, vec fajl, mozemo odmah da ga download-ujuemo
             try {
                 download1(fileId, whereToDownload, name);
             }catch (Exception e1){
@@ -715,7 +754,7 @@ public class GoogleDriveUser extends AbstractUser {
         }
         return files.get(0).getId();
     }
-    private boolean checkName(String name){
+    private boolean doesStorageExist(String name){
         FileList result = null;
         try {
             result = driveService.files().list()
@@ -727,14 +766,48 @@ public class GoogleDriveUser extends AbstractUser {
         List<File> files = result.getFiles();
         if (files == null || files.isEmpty()) {
             System.out.println("No files found.");
-        } else {
-            for (File file : files) {
-                if(file.getName().equalsIgnoreCase(name)){
-                    return false;
-                }
+            return false;
+        }
+        for (File f: files){
+            if(f.getName().equalsIgnoreCase(name)){
+                return true;
             }
         }
-        return true;
+        return false;
+    }
+    private boolean storageHasJsonUsers(String storageName){
+        FileList result = null;
+        List<File> files = findFileByName(storageName);
+        if(files.size() > 1 || files.size() == 0){
+            System.out.println("Error in storagehasjson");
+            return false;
+        }
+        String storageId = files.get(0).getId();
+        String fileQuery = "'" + storageId + "' in parents and trashed=false";
+        try {
+            result = driveService.files().list()
+                    .setQ(fileQuery)
+                    .setFields("nextPageToken, files(id, name, createdTime, mimeType, modifiedTime, size)")
+                    .execute();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        for(File file: result.getFiles()){
+            if(file.getName().equalsIgnoreCase("users.json")){
+                return true;
+            }
+        }
+        return false;
+    }
+    private String getFileIdByName(String storageName){
+        FileList result = null;
+        List<File> files = findFileByName(storageName);
+        if(files.size() > 1 || files.size() == 0){
+            System.out.println("error in getFileIdByName");
+            return null;
+        }
+        String storageId = files.get(0).getId();
+        return storageId;
     }
     //PROBLEM: sta ako se prosledi cela putanja, a ne samo ime fajla: npr: myStorage/dir1/file1
     //RESENJE: pre poziva ove metode uvek se parsira ulazni string tako da se ovoj metodi uvek prosledi samo ime fajla, a ne cela putanja
@@ -743,7 +816,7 @@ public class GoogleDriveUser extends AbstractUser {
         try {
             result = driveService.files().list()
                     .setQ("name = '" + name + "'")
-                    .setFields("nextPageToken, files(id, name, createdTime, mimeType, modifiedTime, size)")
+                    .setFields("nextPageToken, files(id, name, createdTime, mimeType, modifiedTime, size, parents)")
                     .execute();
         } catch (IOException e) {
             e.printStackTrace();
@@ -765,5 +838,26 @@ public class GoogleDriveUser extends AbstractUser {
             return true;
         }
         return false;
+    }
+    private void createUsersJson(String pathOnMyComputer, String pathWhereToUploadFile){
+        if(!checkPrivilege(Privilege.ADMIN)){
+            System.out.println("Nemate dovoljno visok nivo privilegije za ovu operaciju.");
+            return;
+        }
+        if(pathOnMyComputer == null){
+            pathOnMyComputer = this.defaultLocalFileSystemLocation;
+        }
+        Path filepath = Paths.get(pathOnMyComputer + "\\" + "users.json"); //creates Path instance
+        try
+        {
+            Path p= Files.createFile(filepath);
+            ISerialization ser = UserManager.getUserSerializator();
+            ser.saveUserData(String.valueOf(filepath),this);
+        }
+        catch (IOException e)
+        {
+            e.printStackTrace();
+        }
+        this.uploadExistingFile("users.json", pathWhereToUploadFile, pathOnMyComputer+ "\\" + "users.json", "application/json");
     }
 }

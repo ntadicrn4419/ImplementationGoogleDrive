@@ -1,8 +1,5 @@
 import com.fasterxml.jackson.databind.ObjectMapper;
-import storageSpec.AbstractUser;
-import storageSpec.ISerialization;
-import storageSpec.Privilege;
-import storageSpec.UserData;
+import storageSpec.*;
 
 import java.io.File;
 import java.nio.file.Files;
@@ -10,7 +7,7 @@ import java.nio.file.StandardOpenOption;
 import java.util.*;
 
 public class UserSerialization implements ISerialization {
-
+    private String defaultLocalPath = "";
     @Override
     public void saveUserData(String filePath, AbstractUser user) {
         try {
@@ -32,13 +29,18 @@ public class UserSerialization implements ISerialization {
 
     @Override
     public List<UserData> readSavedUsers(String filePath){
+        //System.out.println("readSaveUsers :" + filePath);
         List<UserData> myUsers = new ArrayList<>();
         UserData userData;
         try {
+            UserManager.getUser().download(filePath,this.defaultLocalPath);
+            String [] array = filePath.split("/");
             ObjectMapper objectMapper = new ObjectMapper();
-            Scanner scanner = new Scanner(new File(filePath));
+            Scanner scanner = new Scanner(new File(this.defaultLocalPath + "\\" + array[array.length-1]));
             while (scanner.hasNextLine()) {
                 String line = scanner.nextLine();
+                if(line.length() == 0)
+                    continue;
                 userData = objectMapper.readValue(line, UserData.class);
                 myUsers.add(userData);
             }
@@ -46,5 +48,9 @@ public class UserSerialization implements ISerialization {
             ex.printStackTrace();
         }
         return myUsers;
+    }
+
+    public void setDefaultLocalPath(String defaultLocalPath) {
+        this.defaultLocalPath = defaultLocalPath;
     }
 }
