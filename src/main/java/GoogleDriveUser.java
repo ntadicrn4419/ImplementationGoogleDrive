@@ -102,10 +102,6 @@ public class GoogleDriveUser extends AbstractUser {
 
         return 1;
     }
-    @Override
-    public void saveStorageData() {
-
-    }
     /**
      * Creates directory with given name('String dir') at the specified path(String 'path'); for example createDir("newDir" , "storage/dir1/dir2")
      * When it is created, path of our new directory will be "storage/dir1/dir2/newDir"
@@ -294,10 +290,11 @@ public class GoogleDriveUser extends AbstractUser {
             return 0;
         }
         FileList result = null;
+        String path[] = name.split("/");
         try {
             result = driveService.files().list()
-                    .setQ("name = '" + name + "'")
-                    .setFields("nextPageToken, files(id, name, size, mimeType, creationDate, modifiedDate)")
+                    .setQ("name = '" + path[path.length-1] + "'")
+                    .setFields("nextPageToken, files(id, name)")
                     .execute();
         } catch (IOException e) {
             e.printStackTrace();
@@ -488,18 +485,19 @@ public class GoogleDriveUser extends AbstractUser {
     }
 
     @Override
-    public Collection<String> searchByExtension(String extention) {
+    public Collection<String> searchByExtension(String extention, String dirPath) {
         if(!checkPrivilege(Privilege.READ)){
             System.out.println("Nemate dovoljno visok nivo privilegije za ovu operaciju.");
             return null;
         }
         String pageToken = null;
         ArrayList fileNames = new ArrayList();
+        String fileQuery = "'" + getFileIdByName(dirPath) + "' in parents and mimeType='" + extention + "' and trashed=false";
         do {
             FileList result = null;
             try {
                 result = driveService.files().list()
-                        .setQ("mimeType='" + extention + "'")
+                        .setQ(fileQuery)
                         .setSpaces("drive")
                         .setFields("nextPageToken, files(id, name)")
                         .setPageToken(pageToken)
@@ -549,7 +547,7 @@ public class GoogleDriveUser extends AbstractUser {
     }
 
     @Override
-    public Object getModificationDate(String path) {
+    public String getModificationDate(String path) {
         if(!checkPrivilege(Privilege.READ)){
             System.out.println("Nemate dovoljno visok nivo privilegije za ovu operaciju.");
             return null;
@@ -574,11 +572,11 @@ public class GoogleDriveUser extends AbstractUser {
             System.out.println("Error: more than one file with that name.");
             return null;
         }
-        return files.get(0).getModifiedTime();
+        return files.get(0).getModifiedTime().toString();
     }
 
     @Override
-    public Object getCreationDate(String path) {
+    public String getCreationDate(String path) {
         if(!checkPrivilege(Privilege.READ)){
             System.out.println("Nemate dovoljno visok nivo privilegije za ovu operaciju.");
             return null;
@@ -604,7 +602,7 @@ public class GoogleDriveUser extends AbstractUser {
             return null;
         }
         System.out.println(files.get(0).getCreatedTime());
-        return files.get(0).getCreatedTime();
+        return files.get(0).getCreatedTime().toString();
     }
 
     //odnosi se na celo skladiste
@@ -636,46 +634,50 @@ public class GoogleDriveUser extends AbstractUser {
     }
 
     @Override
-    public void setStorageSize(int size, Storage storage) {
+    public int setStorageSize(int size) {
         if(!checkPrivilege(Privilege.ADMIN)){
             System.out.println("Nemate dovoljno visok nivo privilegije za ovu operaciju.");
-            return;
+            return 0;
         }
-        storage.setStorageSize(size);
+        this.getCurrentActiveStorage().setStorageSize(size);
+        return 1;
     }
 
     @Override
-    public void setForbiddenExtensions(Collection<String> ext, Storage storage) {
+    public int setForbiddenExtensions(Collection<String> ext) {
         if(!checkPrivilege(Privilege.ADMIN)){
             System.out.println("Nemate dovoljno visok nivo privilegije za ovu operaciju.");
-            return;
+            return 0;
         }
-        storage.setForbiddenExtensions(ext);
+        this.getCurrentActiveStorage().setForbiddenExtensions(ext);
+        return 1;
     }
 
     @Override
-    public void setMaxFileNumberInDir(int i, Storage storage, String dirPath) {
-
+    public int setMaxFileNumberInDir(int i, String dirPath) {
+        return 0;
     }
-
+    //addUser ne radi sta treba, popraviti.
     @Override
-    public void addUser(AbstractUser abstractUser, Storage storage, Privilege privilege) {
+    public int addUser(AbstractUser abstractUser, Privilege privilege) {
         if(!checkPrivilege(Privilege.ADMIN)){
             System.out.println("Nemate dovoljno visok nivo privilegije za ovu operaciju.");
-            return;
+            return 0;
         }
-        storage.addUser(abstractUser);//sluzi da storage zna da ovaj user moze da mu pristupi
-        abstractUser.addStorage(storage.getStorageID(), privilege);//sluzi da user zna da za ovaj storage ima ovaj nivo privilegije
+        this.getCurrentActiveStorage().addUser(abstractUser);//sluzi da storage zna da ovaj user moze da mu pristupi
+        abstractUser.addStorage(this.getCurrentActiveStorage().getStorageID(), privilege);//sluzi da user zna da za ovaj storage ima ovaj nivo privilegije
+        return 1;
     }
-
+    //removeUser ne radi sta treba, popraviti.
     @Override
-    public void removeUser(AbstractUser abstractUser, Storage storage) {
+    public int removeUser(AbstractUser abstractUser) {
         if(!checkPrivilege(Privilege.ADMIN)){
             System.out.println("Nemate dovoljno visok nivo privilegije za ovu operaciju.");
-            return;
+            return 0;
         }
-        storage.removeUser(abstractUser);
-        abstractUser.removeStorage(storage.getStorageID());
+        this.getCurrentActiveStorage().removeUser(abstractUser);
+        abstractUser.removeStorage(this.getCurrentActiveStorage().getStorageID());
+        return 1;
     }
     private List<File> getFileObjectsInDir(String dir){
         String pathToDir[] = dir.split("/");
