@@ -670,24 +670,26 @@ public class GoogleDriveUser extends AbstractUser {
     }
     //addUser ne radi sta treba, popraviti.
     @Override
-    public int addUser(AbstractUser abstractUser, Privilege privilege) {
-        if(!checkPrivilege(Privilege.ADMIN)){
-            System.out.println("Nemate dovoljno visok nivo privilegije za ovu operaciju.");
-            return 0;
-        }
-        this.getCurrentActiveStorage().addUser(abstractUser);//sluzi da storage zna da ovaj user moze da mu pristupi
-        abstractUser.addStorage(this.getCurrentActiveStorage().getStorageID(), privilege);//sluzi da user zna da za ovaj storage ima ovaj nivo privilegije
+    public int addUser(String userName, String password, Privilege privilege) {
+//
+//        if(!checkPrivilege(Privilege.ADMIN)){
+//            System.out.println("Nemate dovoljno visok nivo privilegije za ovu operaciju.");
+//            return 0;
+//        }
+//        this.getCurrentActiveStorage().addUser(abstractUser);//sluzi da storage zna da ovaj user moze da mu pristupi
+//        abstractUser.addStorage(this.getCurrentActiveStorage().getStorageID(), privilege);//sluzi da user zna da za ovaj storage ima ovaj nivo privilegije
+//        return 1;
         return 1;
     }
     //removeUser ne radi sta treba, popraviti.
     @Override
-    public int removeUser(AbstractUser abstractUser) {
-        if(!checkPrivilege(Privilege.ADMIN)){
-            System.out.println("Nemate dovoljno visok nivo privilegije za ovu operaciju.");
-            return 0;
-        }
-        this.getCurrentActiveStorage().removeUser(abstractUser);
-        abstractUser.removeStorage(this.getCurrentActiveStorage().getStorageID());
+    public int removeUser(String userName) {
+//        if(!checkPrivilege(Privilege.ADMIN)){
+//            System.out.println("Nemate dovoljno visok nivo privilegije za ovu operaciju.");
+//            return 0;
+//        }
+//        this.getCurrentActiveStorage().removeUser(abstractUser);
+//        abstractUser.removeStorage(this.getCurrentActiveStorage().getStorageID());
         return 1;
     }
     private List<File> getFileObjectsInDir(String dir){
