@@ -2,10 +2,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.api.services.drive.Drive;
 import storageSpec.*;
 
-import java.io.ByteArrayOutputStream;
-import java.io.File;
-import java.io.IOException;
-import java.io.OutputStream;
+import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -16,14 +13,14 @@ import java.util.*;
 public class UserSerialization implements ISerialization {
     private String defaultLocalPath = "";
     @Override
-    public void saveUserData(String filePath, AbstractUser user, boolean append) {
+    public void saveUserData(String filePath, String userName, String password, Map<String, Privilege> storagesAndPrivileges, boolean append) {
         try {
             ObjectMapper objectMapper = new ObjectMapper();
 
             UserData userData = new UserData();
-            userData.setUserName(user.getUserName());
-            userData.setPassword(user.getPassword());
-            userData.setStoragesAndPrivileges(user.getStoragesAndPrivileges());
+            userData.setUserName(userName);
+            userData.setPassword(password);
+            userData.setStoragesAndPrivileges(storagesAndPrivileges);
 
             String json = objectMapper.writeValueAsString(userData);
             java.io.File file = new java.io.File(filePath);
@@ -33,7 +30,6 @@ public class UserSerialization implements ISerialization {
                 Files.write(file.toPath(), Arrays.asList(json), StandardOpenOption.CREATE);
             }
 
-
         } catch (Exception ex) {
             ex.printStackTrace();
         }
@@ -41,16 +37,17 @@ public class UserSerialization implements ISerialization {
 
     @Override
     public List<UserData> readSavedUsers(String filePath){
-        //System.out.println("readSaveUsers :" + filePath);
         List<UserData> myUsers = new ArrayList<>();
         UserData userData;
+        //File file = null;
+        FileInputStream inputStream = null;
         try {
             UserManager.getUser().download(filePath,this.defaultLocalPath);
 
-            String [] array = filePath.split("/");
             ObjectMapper objectMapper = new ObjectMapper();
-            File file = new File(this.defaultLocalPath + "\\" + array[array.length-1]);
-            Scanner scanner = new Scanner(file);
+            //file = new File(this.defaultLocalPath + "\\" + "users.json");
+            inputStream = new FileInputStream(this.defaultLocalPath + "\\" + "users.json");
+            Scanner scanner = new Scanner(inputStream);
             while (scanner.hasNextLine()) {
                 String line = scanner.nextLine();
                 if(line.length() == 0)
@@ -58,7 +55,8 @@ public class UserSerialization implements ISerialization {
                 userData = objectMapper.readValue(line, UserData.class);
                 myUsers.add(userData);
             }
-            file.delete();
+            inputStream.close();
+            Files.delete(Paths.get(this.defaultLocalPath + "\\" + "users.json"));
         } catch (Exception ex) {
             ex.printStackTrace();
         }
@@ -76,6 +74,7 @@ public class UserSerialization implements ISerialization {
             storageData.setStorageSize(storage.getStorageSize());
             storageData.setForbiddenExtensions(storage.getForbiddenExtensions());
             storageData.setRootLocation(storage.getRootLocation());
+            storageData.setDirsMaxChildrenCount(storage.getDirsMaxChildrenCount());
 
             String json = objectMapper.writeValueAsString(storageData);
             File file = new File(fileWhereToSave);

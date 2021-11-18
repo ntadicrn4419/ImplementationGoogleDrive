@@ -56,6 +56,7 @@ public class GoogleDriveUser extends AbstractUser {
         ISerialization ser = UserManager.getUserSerializator();
         ((UserSerialization)ser).setDefaultLocalPath(this.defaultLocalFileSystemLocation);
         List<UserData>usersdata = ser.readSavedUsers(storageNameAndPath + "/users.json");
+
         boolean flag = false;
         for(UserData ud: usersdata){
             if(ud.getUserName().equalsIgnoreCase(username) && ud.getPassword().equals(password)){
@@ -73,7 +74,6 @@ public class GoogleDriveUser extends AbstractUser {
         storage.setStorageSize(storageData.getStorageSize());
         storage.setForbiddenExtensions(storageData.getForbiddenExtensions());
         this.setCurrentActiveStorage(storage);
-        //this.setCurrentActiveStorage(new Storage(storageNameAndPath, this, "google drive", this.getFileIdByName(storageNameAndPath)));
         return 1;
     }
 
@@ -646,11 +646,14 @@ public class GoogleDriveUser extends AbstractUser {
 
     @Override
     public int setStorageSize(int size) {
+
         if(!checkPrivilege(Privilege.ADMIN)){
             System.out.println("Nemate dovoljno visok nivo privilegije za ovu operaciju.");
             return 0;
         }
         this.getCurrentActiveStorage().setStorageSize(size);
+
+
         return 1;
     }
 
@@ -669,30 +672,76 @@ public class GoogleDriveUser extends AbstractUser {
         //naci id foldera by name, this.currentACtiveStorage.getMap.add(id, i)
         return 0;
     }
-    //addUser ne radi sta treba, popraviti.
     @Override
     public int addUser(String userName, String password, Privilege privilege) {
-        //save data, append true
-//        if(!checkPrivilege(Privilege.ADMIN)){
-//            System.out.println("Nemate dovoljno visok nivo privilegije za ovu operaciju.");
-//            return 0;
-//        }
-//        this.getCurrentActiveStorage().addUser(abstractUser);//sluzi da storage zna da ovaj user moze da mu pristupi
-//        abstractUser.addStorage(this.getCurrentActiveStorage().getStorageID(), privilege);//sluzi da user zna da za ovaj storage ima ovaj nivo privilegije
-//        return 1;
+        if(!checkPrivilege(Privilege.ADMIN)){
+            System.out.println("Nemate dovoljno visok nivo privilegije za ovu operaciju.");
+            return 0;
+        }
+        List<UserData> usersData = UserManager.getUserSerializator().readSavedUsers(this.getCurrentActiveStorage().getStorageName() + "/users.json");
+
+        Map<String, Privilege> map = new HashMap<>();
+        map.put(this.getCurrentActiveStorage().getStorageID(), privilege);
+
+        Path filepath = Paths.get(this.defaultLocalFileSystemLocation + "\\" + "users.json");
+        try
+        {
+            Path p= Files.createFile(filepath);
+            ISerialization ser = UserManager.getUserSerializator();
+            for(UserData userData: usersData){ // prvo sacuvamo ono sto je bilo pre
+                ser.saveUserData(String.valueOf(filepath),userData.getUserName(), userData.getPassword(), userData.getStoragesAndPrivileges(), true);
+            }
+            ser.saveUserData(String.valueOf(filepath),userName, password, map, true);//dodamo ovo novo
+        }
+        catch (IOException e)
+        {
+            e.printStackTrace();
+        }
+        //this.delete("users.json");-->brisemo sa drajva onaj stari file sa userima->za to moramo prvo da popravimo metodu delete
+        this.uploadExistingFile("users.json", this.getCurrentActiveStorage().getStorageName(),this.defaultLocalFileSystemLocation + "\\" + "users.json", "application/json");
+        try {
+            Files.delete(filepath);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
         return 1;
     }
-    //removeUser ne radi sta treba, popraviti.
     @Override
     public int removeUser(String userName) {
         //readUsers, izbrisati onog sa ovim userName, tu listu ponovo savovati u petlji, prva iteracija
         // appent false, sve ostalo append true
-//        if(!checkPrivilege(Privilege.ADMIN)){
-//            System.out.println("Nemate dovoljno visok nivo privilegije za ovu operaciju.");
-//            return 0;
-//        }
-//        this.getCurrentActiveStorage().removeUser(abstractUser);
-//        abstractUser.removeStorage(this.getCurrentActiveStorage().getStorageID());
+        if(!checkPrivilege(Privilege.ADMIN)){
+            System.out.println("Nemate dovoljno visok nivo privilegije za ovu operaciju.");
+            return 0;
+        }
+        List<UserData> usersData = UserManager.getUserSerializator().readSavedUsers(this.getCurrentActiveStorage().getStorageName() + "/users.json");
+        for (UserData ud: usersData){
+            if(ud.getUserName().equalsIgnoreCase(userName)){
+                usersData.remove(ud);
+                break;
+            }
+        }
+        Path filepath = Paths.get(this.defaultLocalFileSystemLocation + "\\" + "users.json");
+        try
+        {
+            Path p= Files.createFile(filepath);
+            ISerialization ser = UserManager.getUserSerializator();
+            int cnt = 0;
+            for(UserData userData: usersData){
+                ser.saveUserData(String.valueOf(filepath),userData.getUserName(), userData.getPassword(), userData.getStoragesAndPrivileges(), true);
+            }
+        }
+        catch (IOException e)
+        {
+            e.printStackTrace();
+        }
+        //this.delete("users.json");-->brisemo sa drajva onaj stari file sa userima->za to moramo prvo da popravimo metodu delete
+        this.uploadExistingFile("users.json", this.getCurrentActiveStorage().getStorageName(),this.defaultLocalFileSystemLocation + "\\" + "users.json", "application/json");
+        try {
+            Files.delete(filepath);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
         return 1;
     }
     private List<File> getFileObjectsInDir(String dir){
@@ -734,7 +783,6 @@ public class GoogleDriveUser extends AbstractUser {
     private void download2(String fileId, String whereToDownload, String name) throws IOException {//za google docs fajlove
         OutputStream outputStream = new ByteArrayOutputStream();
         driveService.files().export(fileId, "application/zip").executeMediaAndDownloadTo(outputStream);
-        outputStream.flush();
         Path filepath = Paths.get(whereToDownload + "\\" + name); //creates Path instance
         Path p= Files.createFile(filepath);
         List<String> lines = Arrays.asList(outputStream.toString());
@@ -822,12 +870,12 @@ public class GoogleDriveUser extends AbstractUser {
     }
     //PROBLEM: sta ako se prosledi cela putanja, a ne samo ime fajla: npr: myStorage/dir1/file1
     //RESENJE: pre poziva ove metode uvek se parsira ulazni string tako da se ovoj metodi uvek prosledi samo ime fajla, a ne cela putanja
-    private List<File> findFileByName(String name){
+    public List<File> findFileByName(String name){
         FileList result = null;
         try {
             result = driveService.files().list()
                     .setQ("name = '" + name + "'")
-                    .setFields("nextPageToken, files(id, name, createdTime, mimeType, modifiedTime, size, parents)")
+                    .setFields("nextPageToken, files(id, name, createdTime, mimeType, modifiedTime, size, parents, contentHints)")
                     .execute();
         } catch (IOException e) {
             e.printStackTrace();
@@ -911,7 +959,7 @@ public class GoogleDriveUser extends AbstractUser {
         {
             Path p= Files.createFile(filepath);
             ISerialization ser = UserManager.getUserSerializator();
-            ser.saveUserData(String.valueOf(filepath),this, false);
+            ser.saveUserData(String.valueOf(filepath),this.getUserName(), this.getPassword(), this.getStoragesAndPrivileges(), false);
         }
         catch (IOException e)
         {
