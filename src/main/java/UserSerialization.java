@@ -44,6 +44,8 @@ public class UserSerialization implements ISerialization {
                 userData = objectMapper.readValue(line, UserData.class);
                 myUsers.add(userData);
             }
+            java.io.File myObj = new java.io.File(this.defaultLocalPath + "\\" + array[array.length-1]);
+            myObj.delete();
         } catch (Exception ex) {
             ex.printStackTrace();
         }

@@ -21,7 +21,7 @@ public class GoogleDriveUser extends AbstractUser {
      */
     private final NetHttpTransport HTTP_TRANSPORT = GoogleNetHttpTransport.newTrustedTransport();
     private Drive driveService;
-    private String defaultLocalFileSystemLocation = "C:\\Users\\Luka\\Desktop";
+    private String defaultLocalFileSystemLocation = "C:\\Users\\tadic\\Desktop";
 
     static {
         try {
@@ -40,54 +40,42 @@ public class GoogleDriveUser extends AbstractUser {
                 .build();
     }
 
+    @Override
+    public boolean storageExists(String storageNameAndPath) {
+        return doesStorageExist(storageNameAndPath);
+    }
+
+    @Override
+    public int logIn(String storageNameAndPath, String username, String password) {
+        if(!this.storageHasJsonUsers(storageNameAndPath)){
+            return 0;
+        }
+        ISerialization ser = UserManager.getUserSerializator();
+        ((UserSerialization)ser).setDefaultLocalPath(this.defaultLocalFileSystemLocation);
+        List<UserData>usersdata = ser.readSavedUsers(storageNameAndPath + "/users.json");
+        boolean flag = false;
+        for(UserData ud: usersdata){
+            if(ud.getUserName().equalsIgnoreCase(username) && ud.getPassword().equals(password)){
+                this.setUserName(ud.getUserName());
+                this.setPassword(ud.getPassword());
+                this.setStoragesAndPrivileges(ud.getStoragesAndPrivileges());
+                flag = true;
+            }
+        }
+        if(!flag){
+            return 0;
+        }
+        this.setCurrentActiveStorage(new Storage(storageNameAndPath, this, "google drive", this.getFileIdByName(storageNameAndPath)));
+        return 1;
+    }
+
     /**
      * Creates empty root folder with given storageName at the defined rootLocation on GoogleDrive
      * Created storage is added in map of storages and priveleges.
      */
+
     @Override
-    public void initStorage(String storageName) {
-        if(doesStorageExist(storageName)){
-            if(storageHasJsonUsers(storageName)){
-                System.out.println("Storage postoji, morate da se ulogujete:");
-
-                Scanner sc = new Scanner(System.in);
-                System.out.println("Unesite username:");
-                String username = sc.nextLine();
-                System.out.println("Unesite password:");
-                String password = sc.nextLine();
-
-                ISerialization ser = UserManager.getUserSerializator();
-                ((UserSerialization)ser).setDefaultLocalPath(this.defaultLocalFileSystemLocation);
-                List<UserData>usersdata = ser.readSavedUsers(storageName + "/users.json");
-                boolean flag = false;
-                for(UserData ud: usersdata){
-                    if(ud.getUserName().equalsIgnoreCase(username) && ud.getPassword().equals(password)){
-                        this.setUserName(ud.getUserName());
-                        this.setPassword(ud.getPassword());
-                        this.setStoragesAndPrivileges(ud.getStoragesAndPrivileges());
-                        flag = true;
-                    }
-                }
-                if(!flag){
-                    System.out.println("Nemate pristup ovom skladistu.");
-                    return;
-                }
-                System.out.println("Uspesno ste se ulogovali.");
-                String id = getFileIdByName(storageName);
-                Storage storage = new Storage(storageName, this, "drive", id);
-                this.setCurrentActiveStorage(storage);
-                return;
-            }else{
-                System.out.println("Ime je zauzeto. Pokusajte da unesete drugi naziv");
-                return;
-            }
-        }else{
-            System.out.println("Storage ne postoji. Napravite novi nalog.");
-            Scanner sc = new Scanner(System.in);
-            System.out.println("Unesite username:");
-            String username = sc.nextLine();
-            System.out.println("Unesite password:");
-            String password = sc.nextLine();
+    public int initStorage(String storageName, String username, String password) {
 
             this.setUserName(username);
             this.setPassword(password);
@@ -95,14 +83,12 @@ public class GoogleDriveUser extends AbstractUser {
             File fileMetadata = new File();
             fileMetadata.setName(storageName);
             fileMetadata.setMimeType("application/vnd.google-apps.folder");
-
+            fileMetadata.setParents(Collections.singletonList("rootStorage"));
             File file = null;
             try {
                 file = driveService.files().create(fileMetadata)
-                        .setFields("id")
+                        .setFields("id, name, mimeType, parents")
                         .execute();
-                file.setName(storageName);
-                file.setMimeType("application/vnd.google-apps.folder");
             } catch (IOException e) {
                 e.printStackTrace();
             }
@@ -113,7 +99,8 @@ public class GoogleDriveUser extends AbstractUser {
 
             //kreiramo json file sa userima u ovom storage-u
             this.createUsersJson(this.defaultLocalFileSystemLocation, storageName);
-        }
+
+        return 1;
     }
     @Override
     public void saveStorageData() {
@@ -124,50 +111,49 @@ public class GoogleDriveUser extends AbstractUser {
      * When it is created, path of our new directory will be "storage/dir1/dir2/newDir"
      * */
     @Override
-    public void createDir(String dir, String path) {
+    public int createDir(String dir, String path) {
         if(!checkPrivilege(Privilege.UPLOAD)){
             System.out.println("Nemate dovoljno visok nivo privilegije za ovu operaciju.");
-            return;
+            return 0;
         }
-        if(!doesStorageExist(dir)){
+        if(checkName(dir)){
             System.out.println("File with name: " + dir +  " already exists. Choose another name.");
-            return;
+            return 0;
+        }
+        String folderId = this.findParentDirID(path);
+        if(folderId == null){
+            return 0;
         }
         File fileMetadata = new File();
         fileMetadata.setName(dir);
-        String folderId = this.findParentDirID(path);
         fileMetadata.setParents(Collections.singletonList(folderId));
         fileMetadata.setMimeType("application/vnd.google-apps.folder");
         File file = null;
         try {
             file = driveService.files().create(fileMetadata)
-                    .setFields("id")
+                    .setFields("name, id, mimeType, parents")
                     .execute();
-            file.setName(dir);
-            file.setMimeType("application/vnd.google-apps.folder");//dodato
         } catch (IOException e) {
             e.printStackTrace();
         }
         System.out.println("Folder ID: " + file.getId() + "; " + "folder name: "+ file.getName());
+        return 1;
     }
     /**
-    * Creates dir. In dir creates numberOfFiles files. Example: if namePrefix is myFile and numberOfFiles is 3. In dir will be created 3 empty files:
-     * myFile1 , myFile2, myFile3
+    * Creates multiple dirs(numberOfDirs) with given namePrefix
     * */
     @Override
-    public void createDir(String dirName, String path, String namePrefix, int numberOfFiles) {
+    public int createDir(String dirName, String path, String namePrefix, int numberOfDirs) {
+
         if(!checkPrivilege(Privilege.UPLOAD)){
             System.out.println("Nemate dovoljno visok nivo privilegije za ovu operaciju.");
-            return;
+            return 0;
         }
-        this.createDir(dirName, path);
-        List<File> files = this.findFileByName(dirName);
-
-        File myNewDir = files.get(0);
-        for(int i = 1; i <= numberOfFiles; i++){
-            createFile(namePrefix + i, path + "/myNewDir", this.defaultLocalFileSystemLocation, "text/plain");
+        for(int i = 1; i <= numberOfDirs; i++){
+            //createFile(namePrefix + i, path + "/" + dirName, this.defaultLocalFileSystemLocation, "text/plain");
+            createDir(namePrefix + i, path + "/" );
         }
-
+        return 1;
     }
     /**
      * Uploads existing file with given name, with given type(txt, png...), from pathOnMyComputer(location on local file system) to google drive storage  with given path
@@ -175,10 +161,10 @@ public class GoogleDriveUser extends AbstractUser {
      * When it is created, path of our file will be "storage/dir1/dir2/myFile"
      */
     @Override
-    public void uploadExistingFile(String fileName, String pathWhereToCreateFile,  String pathOnMyComputer, String fileType) {
+    public int uploadExistingFile(String fileName, String pathWhereToCreateFile,  String pathOnMyComputer, String fileType) {
         if(!checkPrivilege(Privilege.UPLOAD)){
             System.out.println("Nemate dovoljno visok nivo privilegije za ovu operaciju.");
-            return;
+            return 0;
         }
         String folderId = this.findParentDirID(pathWhereToCreateFile);
         File fileMetadata = new File();
@@ -197,15 +183,17 @@ public class GoogleDriveUser extends AbstractUser {
             e.printStackTrace();
         }
         System.out.println("File ID: " + file.getId() + "; file name: " + file.getName());
+        return 1;
     }
     /**
      * Creates file on specified path on local file system and then uploads it on google drive storage with given path inside storage
      */
     @Override
-    public void createFile(String fileName, String pathWhereToUploadFile, String pathOnMyComputer, String fileType) {
+    public int createFile(String fileName, String pathWhereToUploadFile, String pathOnMyComputer, String fileType) {
+
         if(!checkPrivilege(Privilege.UPLOAD)){
             System.out.println("Nemate dovoljno visok nivo privilegije za ovu operaciju.");
-            return;
+            return 0;
         }
         if(pathOnMyComputer == null){
            pathOnMyComputer = this.defaultLocalFileSystemLocation;
@@ -221,24 +209,27 @@ public class GoogleDriveUser extends AbstractUser {
             e.printStackTrace();
         }
         this.uploadExistingFile(fileName, pathWhereToUploadFile, pathOnMyComputer+ "\\" + fileName, fileType);
+
+        return 1;
     }
 
     @Override
-    public void move(Collection<String> fileCollection, String pathWhereToMoveIt) {
+    public int move(Collection<String> fileCollection, String pathWhereToMoveIt) {
         if(!checkPrivilege(Privilege.DELETE)){
             System.out.println("Nemate dovoljno visok nivo privilegije za ovu operaciju.");
-            return;
+            return 0;
         }
         for (String f: fileCollection) {
             move(f, pathWhereToMoveIt);
         }
+        return 1;
     }
 
     @Override
-    public void move(String f, String pathWhereToMoveIt) {
+    public int move(String f, String pathWhereToMoveIt) {
         if(!checkPrivilege(Privilege.DELETE)){
             System.out.println("Nemate dovoljno visok nivo privilegije za ovu operaciju.");
-            return;
+            return 0;
         }
         //Ukoliko korisnik zada celu putanju, uzima se samo poslednji fajl u putanji, zato sto znamo da su imena jedinstvena na nivou skladista
         String array[] = f.split("/");
@@ -247,11 +238,11 @@ public class GoogleDriveUser extends AbstractUser {
         List<File> files = findFileByName(f);
         if(files == null || files.size() == 0 ){
             System.out.println("Error in method move: can not find file with name '" + f + "'");
-            return;
+            return 0;
         }
         if(files.size() > 1){
             System.out.println("Error in method move: more then one file with name '" + f + "'");
-            return;
+            return 0;
         }
         String fileId = files.get(0).getId();
 
@@ -261,11 +252,11 @@ public class GoogleDriveUser extends AbstractUser {
         List<File> folders = findFileByName(pathWhereToMoveIt);
         if(folders == null || folders.size() == 0 ){
             System.out.println("Error in method move: can not find folder with name + '" + pathWhereToMoveIt + "'");
-            return;
+            return 0;
         }
         if(folders.size() > 1){
             System.out.println("Error in method move: more then one folder with name + '" + pathWhereToMoveIt + "'");
-            return;
+            return 0;
         }
         String folderId = folders.get(0).getId();
 
@@ -293,13 +284,14 @@ public class GoogleDriveUser extends AbstractUser {
         } catch (IOException e) {
             e.printStackTrace();
         }
+        return 1;
     }
 
     @Override
-    public void delete(String name) {
+    public int delete(String name) {
         if(!checkPrivilege(Privilege.DELETE)){
             System.out.println("Nemate dovoljno visok nivo privilegije za ovu operaciju.");
-            return;
+            return 0;
         }
         FileList result = null;
         try {
@@ -313,25 +305,26 @@ public class GoogleDriveUser extends AbstractUser {
         List<File> files = result.getFiles();
         if(files == null || files.isEmpty()){
             System.out.println("error in method delete: there is no file with name: " + name );
-            return;
+            return 0;
         }
         if(files.size() > 1){
             System.out.println("error in method delete: there is more than 1 file with name: " + name);
-            return;
+            return 0;
         }
         try {
             this.driveService.files().delete(files.get(0).getId()).execute();
         } catch (IOException e) {
             e.printStackTrace();
         }
+        return 1;
     }
     //PROBLEM SA PRAZNIM FAjlovima, problem sa slikama(skine ih, al nece da ih otvori), problem sa google docs fajlovima(skine ih, ali random karakteri, necitljivo)
     @Override
-    public void download(String name, String whereToDownload) {
+    public int download(String name, String whereToDownload) {
         if(!checkPrivilege(Privilege.DOWNLOAD)){
             if(this.getStoragesAndPrivileges().size() != 0){
                 System.out.println("download metoda: Nemate dovoljno visok nivo privilegije za ovu operaciju.");
-                return;
+                return 0;
             }
 
         }
@@ -353,7 +346,7 @@ public class GoogleDriveUser extends AbstractUser {
         }
         if(fl == null){
             System.out.println("Error in download");
-            return;
+            return 0;
         }
         if(!isFolder(fl)){ // ako nije folder, vec fajl, mozemo odmah da ga download-ujuemo
             try {
@@ -365,7 +358,7 @@ public class GoogleDriveUser extends AbstractUser {
                     e2.printStackTrace();
                 }
             }
-            return;
+            return 0;
         }
 
         String fileQuery = "'" + fileId + "' in parents and trashed=false";
@@ -398,7 +391,7 @@ public class GoogleDriveUser extends AbstractUser {
                 }
             }
         }
-
+        return 1;
     }
 
     //PROBLEM: ne radi kada se prosledi cela putanja, npr: mojeSkladiste/dir1; radi samo sa dir1-->srediti
@@ -730,10 +723,11 @@ public class GoogleDriveUser extends AbstractUser {
         Files.write(Paths.get(whereToDownload + "\\" + name), lines);
         outputStream.close();
     }
+
     private String findParentDirID(String path){
         String[] array = path.split("/");
         String parentName = array[array.length-1];
-        String storageName = array[0];
+        //String storageName = array[0];
         FileList result = null;
         try {
             result = driveService.files().list()
@@ -754,11 +748,34 @@ public class GoogleDriveUser extends AbstractUser {
         }
         return files.get(0).getId();
     }
+
+
     private boolean doesStorageExist(String name){
         FileList result = null;
         try {
             result = driveService.files().list()
-                    .setFields("nextPageToken, files(id, name)")
+                    .setFields("nextPageToken, files(id, name, parents)")
+                    .execute();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        List<File> files = result.getFiles();
+        if (files == null || files.isEmpty()) {
+            System.out.println("No files found.");
+            return false;
+        }
+        for (File f: files){
+            if(f.getName().equalsIgnoreCase(name)){// && f.getParents.contatins("rootStorage")
+                return true;
+            }
+        }
+        return false;
+    }
+    private boolean checkName(String name){
+        FileList result = null;
+        try {
+            result = driveService.files().list()
+                    .setFields("nextPageToken, files(id, name, parents)")
                     .execute();
         } catch (IOException e) {
             e.printStackTrace();
