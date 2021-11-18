@@ -50,6 +50,9 @@ public class GoogleDriveUser extends AbstractUser {
         if(!this.storageHasJsonUsers(storageNameAndPath)){
             return 0;
         }
+        if(!this.storageHasJsonMetaDataStorage(storageNameAndPath)){
+            return 0;
+        }
         ISerialization ser = UserManager.getUserSerializator();
         ((UserSerialization)ser).setDefaultLocalPath(this.defaultLocalFileSystemLocation);
         List<UserData>usersdata = ser.readSavedUsers(storageNameAndPath + "/users.json");
@@ -65,7 +68,12 @@ public class GoogleDriveUser extends AbstractUser {
         if(!flag){
             return 0;
         }
-        this.setCurrentActiveStorage(new Storage(storageNameAndPath, this, "google drive", this.getFileIdByName(storageNameAndPath)));
+        StorageData storageData = ser.readStorageData(storageNameAndPath + "/storage.json");
+        Storage storage = new Storage(storageData.getStorageName(), this, "google drive", storageData.getStorageID());
+        storage.setStorageSize(storageData.getStorageSize());
+        storage.setForbiddenExtensions(storageData.getForbiddenExtensions());
+        this.setCurrentActiveStorage(storage);
+        //this.setCurrentActiveStorage(new Storage(storageNameAndPath, this, "google drive", this.getFileIdByName(storageNameAndPath)));
         return 1;
     }
 
@@ -83,24 +91,25 @@ public class GoogleDriveUser extends AbstractUser {
             File fileMetadata = new File();
             fileMetadata.setName(storageName);
             fileMetadata.setMimeType("application/vnd.google-apps.folder");
-            fileMetadata.setParents(Collections.singletonList("rootStorage"));
             File file = null;
             try {
                 file = driveService.files().create(fileMetadata)
-                        .setFields("id, name, mimeType, parents")
+                        .setFields("id, name, mimeType")
                         .execute();
             } catch (IOException e) {
                 e.printStackTrace();
             }
             System.out.println("Kreiran je storage: " + file.getId() + "; " + "storage name: "+ file.getName());
-            Storage storage = new Storage(storageName, this, "drive", file.getId());
+            Storage storage = new Storage(storageName, this, "google drive", file.getId());
             this.addStorage(file.getId(), Privilege.ADMIN);
             this.setCurrentActiveStorage(storage);
 
             //kreiramo json file sa userima u ovom storage-u
             this.createUsersJson(this.defaultLocalFileSystemLocation, storageName);
+            //kreiramo json file sa meta podacima o storage-u
+            this.createStorageJson(this.defaultLocalFileSystemLocation, storageName, storage);
 
-        return 1;
+            return 1;
     }
     /**
      * Creates directory with given name('String dir') at the specified path(String 'path'); for example createDir("newDir" , "storage/dir1/dir2")
@@ -318,12 +327,14 @@ public class GoogleDriveUser extends AbstractUser {
     //PROBLEM SA PRAZNIM FAjlovima, problem sa slikama(skine ih, al nece da ih otvori), problem sa google docs fajlovima(skine ih, ali random karakteri, necitljivo)
     @Override
     public int download(String name, String whereToDownload) {
-        if(!checkPrivilege(Privilege.DOWNLOAD)){
-            if(this.getStoragesAndPrivileges().size() != 0){
-                System.out.println("download metoda: Nemate dovoljno visok nivo privilegije za ovu operaciju.");
-                return 0;
-            }
+        if(!name.contains("storage.json") && !name.contains("users.json")){
+            if(!checkPrivilege(Privilege.DOWNLOAD)){
+                if(this.getStoragesAndPrivileges().size() != 0){
+                    System.out.println("download metoda: Nemate dovoljno visok nivo privilegije za ovu operaciju.");
+                    return 0;
+                }
 
+            }
         }
         if(whereToDownload == null || whereToDownload == ""){
             whereToDownload = this.defaultLocalFileSystemLocation;
@@ -794,30 +805,6 @@ public class GoogleDriveUser extends AbstractUser {
         }
         return false;
     }
-    private boolean storageHasJsonUsers(String storageName){
-        FileList result = null;
-        List<File> files = findFileByName(storageName);
-        if(files.size() > 1 || files.size() == 0){
-            System.out.println("Error in storagehasjson");
-            return false;
-        }
-        String storageId = files.get(0).getId();
-        String fileQuery = "'" + storageId + "' in parents and trashed=false";
-        try {
-            result = driveService.files().list()
-                    .setQ(fileQuery)
-                    .setFields("nextPageToken, files(id, name, createdTime, mimeType, modifiedTime, size)")
-                    .execute();
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-        for(File file: result.getFiles()){
-            if(file.getName().equalsIgnoreCase("users.json")){
-                return true;
-            }
-        }
-        return false;
-    }
     private String getFileIdByName(String storageName){
         FileList result = null;
         List<File> files = findFileByName(storageName);
@@ -858,12 +845,60 @@ public class GoogleDriveUser extends AbstractUser {
         }
         return false;
     }
+    private boolean storageHasJsonUsers(String storageName){
+        FileList result = null;
+        List<File> files = findFileByName(storageName);
+        if(files.size() > 1 || files.size() == 0){
+            System.out.println("Error in storageHasJsonUsers");
+            return false;
+        }
+        String storageId = files.get(0).getId();
+        String fileQuery = "'" + storageId + "' in parents and trashed=false";
+        try {
+            result = driveService.files().list()
+                    .setQ(fileQuery)
+                    .setFields("nextPageToken, files(id, name, createdTime, mimeType, modifiedTime, size)")
+                    .execute();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        for(File file: result.getFiles()){
+            if(file.getName().equalsIgnoreCase("users.json")){
+                return true;
+            }
+        }
+        return false;
+    }
+    private boolean storageHasJsonMetaDataStorage(String storageName){
+        FileList result = null;
+        List<File> files = findFileByName(storageName);
+        if(files.size() > 1 || files.size() == 0){
+            System.out.println("Error in storageHasJsonMetaDataStorage");
+            return false;
+        }
+        String storageId = files.get(0).getId();
+        String fileQuery = "'" + storageId + "' in parents and trashed=false";
+        try {
+            result = driveService.files().list()
+                    .setQ(fileQuery)
+                    .setFields("nextPageToken, files(id, name, createdTime, mimeType, modifiedTime, size)")
+                    .execute();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        for(File file: result.getFiles()){
+            if(file.getName().equalsIgnoreCase("storage.json")){
+                return true;
+            }
+        }
+        return false;
+    }
     private void createUsersJson(String pathOnMyComputer, String pathWhereToUploadFile){
         if(!checkPrivilege(Privilege.ADMIN)){
             System.out.println("Nemate dovoljno visok nivo privilegije za ovu operaciju.");
             return;
         }
-        if(pathOnMyComputer == null){
+        if(pathOnMyComputer == null || pathOnMyComputer == ""){
             pathOnMyComputer = this.defaultLocalFileSystemLocation;
         }
         Path filepath = Paths.get(pathOnMyComputer + "\\" + "users.json"); //creates Path instance
@@ -878,5 +913,36 @@ public class GoogleDriveUser extends AbstractUser {
             e.printStackTrace();
         }
         this.uploadExistingFile("users.json", pathWhereToUploadFile, pathOnMyComputer+ "\\" + "users.json", "application/json");
+        try {
+            Files.delete(filepath);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+    private void createStorageJson(String pathOnMyComputer, String pathWhereToUploadFile, Storage storage){
+        if(!checkPrivilege(Privilege.ADMIN)){
+            System.out.println("Nemate dovoljno visok nivo privilegije za ovu operaciju.");
+            return;
+        }
+        if(pathOnMyComputer == null || pathOnMyComputer == ""){
+            pathOnMyComputer = this.defaultLocalFileSystemLocation;
+        }
+        Path filepath = Paths.get(pathOnMyComputer + "\\" + "storage.json"); //creates Path instance
+        try
+        {
+            Path p= Files.createFile(filepath);
+            ISerialization ser = UserManager.getUserSerializator();
+            ser.saveStorageData(String.valueOf(filepath), storage);
+        }
+        catch (IOException e)
+        {
+            e.printStackTrace();
+        }
+        this.uploadExistingFile("storage.json", pathWhereToUploadFile, pathOnMyComputer+ "\\" + "storage.json", "application/json");
+        try {
+            Files.delete(filepath);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
     }
 }
