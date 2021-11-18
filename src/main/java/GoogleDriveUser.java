@@ -666,12 +666,13 @@ public class GoogleDriveUser extends AbstractUser {
 
     @Override
     public int setMaxFileNumberInDir(int i, String dirPath) {
+        //naci id foldera by name, this.currentACtiveStorage.getMap.add(id, i)
         return 0;
     }
     //addUser ne radi sta treba, popraviti.
     @Override
     public int addUser(String userName, String password, Privilege privilege) {
-//
+        //save data, append true
 //        if(!checkPrivilege(Privilege.ADMIN)){
 //            System.out.println("Nemate dovoljno visok nivo privilegije za ovu operaciju.");
 //            return 0;
@@ -684,6 +685,8 @@ public class GoogleDriveUser extends AbstractUser {
     //removeUser ne radi sta treba, popraviti.
     @Override
     public int removeUser(String userName) {
+        //readUsers, izbrisati onog sa ovim userName, tu listu ponovo savovati u petlji, prva iteracija
+        // appent false, sve ostalo append true
 //        if(!checkPrivilege(Privilege.ADMIN)){
 //            System.out.println("Nemate dovoljno visok nivo privilegije za ovu operaciju.");
 //            return 0;
@@ -908,7 +911,7 @@ public class GoogleDriveUser extends AbstractUser {
         {
             Path p= Files.createFile(filepath);
             ISerialization ser = UserManager.getUserSerializator();
-            ser.saveUserData(String.valueOf(filepath),this);
+            ser.saveUserData(String.valueOf(filepath),this, false);
         }
         catch (IOException e)
         {

@@ -16,7 +16,7 @@ import java.util.*;
 public class UserSerialization implements ISerialization {
     private String defaultLocalPath = "";
     @Override
-    public void saveUserData(String filePath, AbstractUser user) {
+    public void saveUserData(String filePath, AbstractUser user, boolean append) {
         try {
             ObjectMapper objectMapper = new ObjectMapper();
 
@@ -27,7 +27,12 @@ public class UserSerialization implements ISerialization {
 
             String json = objectMapper.writeValueAsString(userData);
             java.io.File file = new java.io.File(filePath);
-            Files.write(file.toPath(), Arrays.asList(json), StandardOpenOption.APPEND);
+            if(append){
+                Files.write(file.toPath(), Arrays.asList(json), StandardOpenOption.APPEND);
+            }else{
+                Files.write(file.toPath(), Arrays.asList(json), StandardOpenOption.CREATE);
+            }
+
 
         } catch (Exception ex) {
             ex.printStackTrace();
@@ -74,7 +79,7 @@ public class UserSerialization implements ISerialization {
 
             String json = objectMapper.writeValueAsString(storageData);
             File file = new File(fileWhereToSave);
-            Files.write(file.toPath(), Arrays.asList(json), StandardOpenOption.APPEND);
+            Files.write(file.toPath(), Arrays.asList(json), StandardOpenOption.CREATE);
 
         } catch (Exception ex) {
             ex.printStackTrace();
