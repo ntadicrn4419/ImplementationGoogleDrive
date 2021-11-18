@@ -52,6 +52,16 @@ public class UserSerialization implements ISerialization {
         return myUsers;
     }
 
+    @Override
+    public void saveStorageData(String s, Storage storage) {
+
+    }
+
+    @Override
+    public StorageData readStorageData(String s) {
+        return null;
+    }
+
     public void setDefaultLocalPath(String defaultLocalPath) {
         this.defaultLocalPath = defaultLocalPath;
     }
