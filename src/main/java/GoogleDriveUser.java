@@ -73,6 +73,7 @@ public class GoogleDriveUser extends AbstractUser {
         Storage storage = new Storage(storageData.getStorageName(), this, "google drive", storageData.getStorageID());
         storage.setStorageSize(storageData.getStorageSize());
         storage.setForbiddenExtensions(storageData.getForbiddenExtensions());
+        storage.setDirsMaxChildrenCount(storageData.getDirsMaxChildrenCount());
         this.setCurrentActiveStorage(storage);
         return 1;
     }
@@ -171,28 +172,50 @@ public class GoogleDriveUser extends AbstractUser {
             System.out.println("Nemate dovoljno visok nivo privilegije za ovu operaciju.");
             return 0;
         }
+
         String folderId = this.findParentDirID(pathWhereToCreateFile);
         File fileMetadata = new File();
         fileMetadata.setName(fileName);
         fileMetadata.setParents(Collections.singletonList(folderId));
+        fileMetadata.setMimeType("application/vnd.google-apps.file");
         java.io.File filePath = new java.io.File(pathOnMyComputer);
         FileContent mediaContent = new FileContent(fileType, filePath);
         File file = null;
+        if(this.isStorageSizeFieldSet()){
+            if(filePath.length() + this.getCurrentStorageSize() > this.getCurrentActiveStorage().getStorageSize()){
+                System.out.println("Broj bajtova je veci od dozvoljenog");
+                return 0;
+            }
+        }
+        if(this.forbiddenExtensionsSet()){
+            if(this.getCurrentActiveStorage().getForbiddenExtensions().contains(fileType)){
+                System.out.println("Nije dozvoljeno upload-ovati fajlove sa ovom ekstenzijom");
+                return 0;
+            }
+        }
+        int maxFilesInDir = this.getNumberOfMaxFilesInDir(pathWhereToCreateFile);
+        if(maxFilesInDir != -1){
+            if(this.getCurrentNumberOfFilesInDir(pathWhereToCreateFile) + 1 > maxFilesInDir){
+                System.out.println("Ovaj direktorijum u koji zelite da upload-ujete je popunjen do maksimuma.");
+                return 0;
+            }
+        }
         try {
             file = driveService.files().create(fileMetadata, mediaContent)
-                    .setFields("id, parents")
+                    .setFields("id, parents, name, mimeType")
                     .execute();
-            file.setName(fileName);
-            file.setMimeType("application/vnd.google-apps.file");
         } catch (IOException e) {
-            e.printStackTrace();
+            return 0;
+            //e.printStackTrace();
         }
         System.out.println("File ID: " + file.getId() + "; file name: " + file.getName());
         return 1;
     }
+
     /**
      * Creates file on specified path on local file system and then uploads it on google drive storage with given path inside storage
      */
+
     @Override
     public int createFile(String fileName, String pathWhereToUploadFile, String pathOnMyComputer, String fileType) {
 
@@ -206,8 +229,7 @@ public class GoogleDriveUser extends AbstractUser {
         Path filepath = Paths.get(pathOnMyComputer + "\\" + fileName); //creates Path instance
         try
         {
-            Path p= Files.createFile(filepath);     //creates empty file at specified location(path) on local file system
-            System.out.println("File Created at Path: "+p);
+            Path p= Files.createFile(filepath); //creates empty file at specified location(path) on local file system
         }
         catch (IOException e)
         {
@@ -215,8 +237,15 @@ public class GoogleDriveUser extends AbstractUser {
         }
         this.uploadExistingFile(fileName, pathWhereToUploadFile, pathOnMyComputer+ "\\" + fileName, fileType);
 
+        try {
+            Files.delete(filepath); //deletes file at specified location(path) on local file system after uploading on google drive
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
         return 1;
     }
+
 
     @Override
     public int move(Collection<String> fileCollection, String pathWhereToMoveIt) {
@@ -234,6 +263,10 @@ public class GoogleDriveUser extends AbstractUser {
     public int move(String f, String pathWhereToMoveIt) {
         if(!checkPrivilege(Privilege.DELETE)){
             System.out.println("Nemate dovoljno visok nivo privilegije za ovu operaciju.");
+            return 0;
+        }
+        if(f.contains("users.json") || f.contains("storage.json")){
+            System.out.println("Nije dozvoljeno premestati ovaj tip fajla");
             return 0;
         }
         //Ukoliko korisnik zada celu putanju, uzima se samo poslednji fajl u putanji, zato sto znamo da su imena jedinstvena na nivou skladista
@@ -342,6 +375,7 @@ public class GoogleDriveUser extends AbstractUser {
         String array[] = name.split("/");
         name = array[array.length-1];
         List<File> files = findFileByName(name);
+        ////
         String fileId = null;
         File fl = null;
         for(File f: files){
@@ -356,6 +390,7 @@ public class GoogleDriveUser extends AbstractUser {
             System.out.println("Error in download");
             return 0;
         }
+        ////
         if(!isFolder(fl)){ // ako nije folder, vec fajl, mozemo odmah da ga download-ujuemo
             try {
                 download1(fileId, whereToDownload, name);
@@ -467,9 +502,9 @@ public class GoogleDriveUser extends AbstractUser {
         return fileNames;
     }
 
-    //OVA METODA NEMA SMISLA...treba da vrati putanju fajla, popraviti!
     @Override
-    public Collection<String> searchByName(String name) {//iako vraca kolekciju stringova, vratice uvek kolekciju sa samo jednim clanom, zato sto su imena
+    public Collection<String> searchByName(String name) {
+        /*
         if(!checkPrivilege(Privilege.READ)){
             System.out.println("Nemate dovoljno visok nivo privilegije za ovu operaciju.");
             return null;
@@ -493,38 +528,36 @@ public class GoogleDriveUser extends AbstractUser {
             fileNames.add(file.getName());
         }
         return fileNames;
+         */
+        System.out.println("Operation is not supported in google drive implementation.");
+        return null;
     }
 
     @Override
-    public Collection<String> searchByExtension(String extention, String dirPath) {
+    public Collection<String> searchByExtension(String extension, String dirPath) {
         if(!checkPrivilege(Privilege.READ)){
             System.out.println("Nemate dovoljno visok nivo privilegije za ovu operaciju.");
             return null;
         }
-        String pageToken = null;
-        ArrayList fileNames = new ArrayList();
-        String fileQuery = "'" + getFileIdByName(dirPath) + "' in parents and mimeType='" + extention + "' and trashed=false";
-        do {
+        List<String> sol = new ArrayList<>();
             FileList result = null;
             try {
                 result = driveService.files().list()
-                        .setQ(fileQuery)
+                        .setQ("'" + this.findParentDirID(dirPath) + "' in parents and trashed=false")
                         .setSpaces("drive")
-                        .setFields("nextPageToken, files(id, name)")
-                        .setPageToken(pageToken)
+                        .setFields("nextPageToken, files(id, name, mimeType, fileExtension)")
                         .execute();
             } catch (IOException e) {
                 e.printStackTrace();
             }
             for (File file : result.getFiles()) {
-                fileNames.add(file.getName());
+                if((file.getFileExtension() != null && file.getFileExtension().equalsIgnoreCase(extension)) || file.getName().contains(extension)){
+                    sol.add(file.getName());
+                }
             }
-            pageToken = result.getNextPageToken();
-        } while (pageToken != null);
-        return fileNames;
+        return sol;
     }
 
-    //PROBLEM: Resenja.zip ide pre aaa i pre bbb(folder bla) ; zasto???
     @Override
     public Collection<String> getFilesInDirSortedByName(String dir) {
         if(!checkPrivilege(Privilege.READ)){
@@ -618,11 +651,10 @@ public class GoogleDriveUser extends AbstractUser {
 
     //odnosi se na celo skladiste
     @Override
-    public Collection<String> searchByDateCreationRange(Date date, Date date1) {
-
-        return null;
+    public Collection<String> searchByDateCreationRange(Date date1, Date date2) {
+        return this.searchFilesInDirByDateCreationRange(date1, date2, this.getCurrentActiveStorage().getStorageName());
     }
-    //PROBLEM: Ne radi kako treba, izmeniti skroz!!!
+
     @Override
     public Collection<String> searchFilesInDirByDateCreationRange(Date date1, Date date2, String dir) {
         if(!checkPrivilege(Privilege.READ)){
@@ -670,7 +702,16 @@ public class GoogleDriveUser extends AbstractUser {
     @Override
     public int setMaxFileNumberInDir(int i, String dirPath) {
         //naci id foldera by name, this.currentACtiveStorage.getMap.add(id, i)
-        return 0;
+        String dirId = this.getFileIdByName(dirPath);
+        if(dirId == null){
+            System.out.println("Dir id nije pronadjen");
+            return 0;
+        }
+        if(this.getCurrentActiveStorage().getDirsMaxChildrenCount() == null){
+            this.getCurrentActiveStorage().setDirsMaxChildrenCount(new HashMap<>());
+        }
+        this.getCurrentActiveStorage().getDirsMaxChildrenCount().put(dirId, i);
+        return 1;
     }
     @Override
     public int addUser(String userName, String password, Privilege privilege) {
@@ -697,7 +738,7 @@ public class GoogleDriveUser extends AbstractUser {
         {
             e.printStackTrace();
         }
-        //this.delete("users.json");-->brisemo sa drajva onaj stari file sa userima->za to moramo prvo da popravimo metodu delete
+        this.deleteUsersJson();//brisemo onaj stari json iz storage-a
         this.uploadExistingFile("users.json", this.getCurrentActiveStorage().getStorageName(),this.defaultLocalFileSystemLocation + "\\" + "users.json", "application/json");
         try {
             Files.delete(filepath);
@@ -735,7 +776,7 @@ public class GoogleDriveUser extends AbstractUser {
         {
             e.printStackTrace();
         }
-        //this.delete("users.json");-->brisemo sa drajva onaj stari file sa userima->za to moramo prvo da popravimo metodu delete
+        this.deleteUsersJson();//brisemo onaj stari json iz storage-a
         this.uploadExistingFile("users.json", this.getCurrentActiveStorage().getStorageName(),this.defaultLocalFileSystemLocation + "\\" + "users.json", "application/json");
         try {
             Files.delete(filepath);
@@ -839,8 +880,10 @@ public class GoogleDriveUser extends AbstractUser {
     }
     private boolean checkName(String name){
         FileList result = null;
+        String storageId = this.getCurrentActiveStorage().getStorageID();
         try {
             result = driveService.files().list()
+                    .setQ("'" + storageId + "' in parents and trashed=false")
                     .setFields("nextPageToken, files(id, name, parents)")
                     .execute();
         } catch (IOException e) {
@@ -875,7 +918,7 @@ public class GoogleDriveUser extends AbstractUser {
         try {
             result = driveService.files().list()
                     .setQ("name = '" + name + "'")
-                    .setFields("nextPageToken, files(id, name, createdTime, mimeType, modifiedTime, size, parents, contentHints)")
+                    .setFields("nextPageToken, files(id, name, createdTime, mimeType, modifiedTime, size, parents)")
                     .execute();
         } catch (IOException e) {
             e.printStackTrace();
@@ -972,6 +1015,25 @@ public class GoogleDriveUser extends AbstractUser {
             e.printStackTrace();
         }
     }
+    private void deleteUsersJson(){
+        FileList result = null;
+        String storageId = this.getCurrentActiveStorage().getStorageID();
+        String query = "'" + storageId + "' in parents and trashed=false";
+        try {
+            result = driveService.files().list()
+                    .setQ(query)
+                    .setFields("nextPageToken, files(id, name)")
+                    .execute();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        List<File> files = result.getFiles();
+        try {
+            this.driveService.files().delete(files.get(0).getId()).execute();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
     private void createStorageJson(String pathOnMyComputer, String pathWhereToUploadFile, Storage storage){
         if(!checkPrivilege(Privilege.ADMIN)){
             System.out.println("Nemate dovoljno visok nivo privilegije za ovu operaciju.");
@@ -997,5 +1059,56 @@ public class GoogleDriveUser extends AbstractUser {
         } catch (IOException e) {
             e.printStackTrace();
         }
+    }
+    private boolean isStorageSizeFieldSet(){
+        if(this.getCurrentActiveStorage().getStorageSize() > 0){
+            return true;
+        }
+        return false;
+    }
+    private long getCurrentStorageSize(){
+        FileList result = null;
+        try {
+            result = driveService.files().list()
+                    .setQ("name='" + this.getCurrentActiveStorage().getStorageName() + "'")
+                    .setFields("nextPageToken, files(id, name)")
+                    .execute();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        File storage = result.getFiles().get(0);
+        return storage.getSize();
+    }
+    private boolean forbiddenExtensionsSet(){
+        if(this.getCurrentActiveStorage().getForbiddenExtensions() != null && this.getCurrentActiveStorage().getForbiddenExtensions().size() > 0){
+            return true;
+        }
+        return false;
+    }
+    private int getNumberOfMaxFilesInDir(String dirName){
+        String array[] = dirName.split("/");
+        dirName = array[array.length-1];
+        String dirID = this.getFileIdByName(dirName);
+        if(this.getCurrentActiveStorage().getDirsMaxChildrenCount() != null && this.getCurrentActiveStorage().getDirsMaxChildrenCount().size() > 0){
+            if(this.getCurrentActiveStorage().getDirsMaxChildrenCount().keySet().contains(dirID)){
+                return this.getCurrentActiveStorage().getDirsMaxChildrenCount().get(dirID);
+            }
+        }
+        return -1;
+    }
+    private int getCurrentNumberOfFilesInDir(String dirName){
+        String array[] = dirName.split("/");
+        dirName = array[array.length-1];
+        String q = "'" + this.getFileIdByName(dirName) + "' " + "in parents and trashed=false";
+        FileList result = null;
+        try {
+            result = driveService.files().list()
+                    .setQ(q)
+                    .setFields("nextPageToken, files(id, name)")
+                    .execute();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        return result.size();
     }
 }

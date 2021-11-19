@@ -22,7 +22,6 @@ import java.util.*;
 public class TestClass {//delete this class later
     public static void main(String... args) throws IOException, GeneralSecurityException {
        GoogleDriveUser user = new GoogleDriveUser();
-        File f = user.findFileByName("users.json").get(0);
 
     }
 

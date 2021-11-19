@@ -39,13 +39,12 @@ public class UserSerialization implements ISerialization {
     public List<UserData> readSavedUsers(String filePath){
         List<UserData> myUsers = new ArrayList<>();
         UserData userData;
-        //File file = null;
         FileInputStream inputStream = null;
         try {
             UserManager.getUser().download(filePath,this.defaultLocalPath);
 
             ObjectMapper objectMapper = new ObjectMapper();
-            //file = new File(this.defaultLocalPath + "\\" + "users.json");
+
             inputStream = new FileInputStream(this.defaultLocalPath + "\\" + "users.json");
             Scanner scanner = new Scanner(inputStream);
             while (scanner.hasNextLine()) {
