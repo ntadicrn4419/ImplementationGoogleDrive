@@ -105,6 +105,9 @@ public class GoogleDriveUser extends AbstractUser {
             this.addStorage(file.getId(), Privilege.ADMIN);
             this.setCurrentActiveStorage(storage);
 
+            ISerialization ser = UserManager.getUserSerializator();
+            ((UserSerialization)ser).setDefaultLocalPath(this.defaultLocalFileSystemLocation);
+
             //kreiramo json file sa userima u ovom storage-u
             this.createUsersJson(this.defaultLocalFileSystemLocation, storageName);
             //kreiramo json file sa meta podacima o storage-u
@@ -177,7 +180,6 @@ public class GoogleDriveUser extends AbstractUser {
         File fileMetadata = new File();
         fileMetadata.setName(fileName);
         fileMetadata.setParents(Collections.singletonList(folderId));
-        fileMetadata.setMimeType("application/vnd.google-apps.file");
         java.io.File filePath = new java.io.File(pathOnMyComputer);
         FileContent mediaContent = new FileContent(fileType, filePath);
         File file = null;
@@ -202,11 +204,12 @@ public class GoogleDriveUser extends AbstractUser {
         }
         try {
             file = driveService.files().create(fileMetadata, mediaContent)
-                    .setFields("id, parents, name, mimeType")
+                    .setFields("id, parents, name")
+                    .setFields("id")
                     .execute();
         } catch (IOException e) {
-            return 0;
-            //e.printStackTrace();
+            //return 0;
+            e.printStackTrace();
         }
         System.out.println("File ID: " + file.getId() + "; file name: " + file.getName());
         return 1;
@@ -217,16 +220,13 @@ public class GoogleDriveUser extends AbstractUser {
      */
 
     @Override
-    public int createFile(String fileName, String pathWhereToUploadFile, String pathOnMyComputer, String fileType) {
+    public int createFile(String fileName, String pathWhereToUploadFile, String fileType) {
 
         if(!checkPrivilege(Privilege.UPLOAD)){
             System.out.println("Nemate dovoljno visok nivo privilegije za ovu operaciju.");
             return 0;
         }
-        if(pathOnMyComputer == null){
-           pathOnMyComputer = this.defaultLocalFileSystemLocation;
-        }
-        Path filepath = Paths.get(pathOnMyComputer + "\\" + fileName); //creates Path instance
+        Path filepath = Paths.get(this.defaultLocalFileSystemLocation + "\\" + fileName);
         try
         {
             Path p= Files.createFile(filepath); //creates empty file at specified location(path) on local file system
@@ -235,7 +235,7 @@ public class GoogleDriveUser extends AbstractUser {
         {
             e.printStackTrace();
         }
-        this.uploadExistingFile(fileName, pathWhereToUploadFile, pathOnMyComputer+ "\\" + fileName, fileType);
+        this.uploadExistingFile(fileName, pathWhereToUploadFile, this.defaultLocalFileSystemLocation+ "\\" + fileName, fileType);
 
         try {
             Files.delete(filepath); //deletes file at specified location(path) on local file system after uploading on google drive
@@ -997,28 +997,27 @@ public class GoogleDriveUser extends AbstractUser {
         if(pathOnMyComputer == null || pathOnMyComputer == ""){
             pathOnMyComputer = this.defaultLocalFileSystemLocation;
         }
-        Path filepath = Paths.get(pathOnMyComputer + "\\" + "users.json"); //creates Path instance
+        java.io.File myFile = null;
         try
         {
-            Path p= Files.createFile(filepath);
+            myFile = new java.io.File(pathOnMyComputer + "\\" + "users.json");
+            myFile.createNewFile(); // if file already exists will do nothing
+            FileOutputStream outputStream = new FileOutputStream(myFile, false);
             ISerialization ser = UserManager.getUserSerializator();
-            ser.saveUserData(String.valueOf(filepath),this.getUserName(), this.getPassword(), this.getStoragesAndPrivileges(), false);
-        }
+            ser.saveUserData(myFile.getPath(),this.getUserName(), this.getPassword(), this.getStoragesAndPrivileges(), false);
+            outputStream.close();
+         }
         catch (IOException e)
         {
             e.printStackTrace();
         }
         this.uploadExistingFile("users.json", pathWhereToUploadFile, pathOnMyComputer+ "\\" + "users.json", "application/json");
-        try {
-            Files.delete(filepath);
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
+        myFile.delete();
     }
     private void deleteUsersJson(){
         FileList result = null;
         String storageId = this.getCurrentActiveStorage().getStorageID();
-        String query = "'" + storageId + "' in parents and trashed=false";
+        String query = "'" + storageId + "' in parents and name = 'users.json' and " + " trashed=false";
         try {
             result = driveService.files().list()
                     .setQ(query)
@@ -1042,23 +1041,22 @@ public class GoogleDriveUser extends AbstractUser {
         if(pathOnMyComputer == null || pathOnMyComputer == ""){
             pathOnMyComputer = this.defaultLocalFileSystemLocation;
         }
-        Path filepath = Paths.get(pathOnMyComputer + "\\" + "storage.json"); //creates Path instance
+        java.io.File myFile = null;
         try
         {
-            Path p= Files.createFile(filepath);
+            myFile = new java.io.File(pathOnMyComputer + "\\" + "storage.json");
+            myFile.createNewFile(); // if file already exists will do nothing
+            FileOutputStream outputStream = new FileOutputStream(myFile, false);
             ISerialization ser = UserManager.getUserSerializator();
-            ser.saveStorageData(String.valueOf(filepath), storage);
+            ser.saveStorageData(myFile.getPath(), storage);
+            outputStream.close();
         }
         catch (IOException e)
         {
             e.printStackTrace();
         }
         this.uploadExistingFile("storage.json", pathWhereToUploadFile, pathOnMyComputer+ "\\" + "storage.json", "application/json");
-        try {
-            Files.delete(filepath);
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
+        myFile.delete();
     }
     private boolean isStorageSizeFieldSet(){
         if(this.getCurrentActiveStorage().getStorageSize() > 0){
