@@ -21,7 +21,7 @@ public class GoogleDriveUser extends AbstractUser {
      */
     private final NetHttpTransport HTTP_TRANSPORT = GoogleNetHttpTransport.newTrustedTransport();
     private Drive driveService;
-    private String defaultLocalFileSystemLocation = "C:\\Users\\tadic\\Desktop";
+    private String defaultLocalFileSystemLocation = "";//"C:\Users\tadic\Desktop";
 
     static {
         try {
@@ -35,6 +35,9 @@ public class GoogleDriveUser extends AbstractUser {
     }
     public GoogleDriveUser() throws GeneralSecurityException, IOException{
         super.initStoragesAndPrivileges(new HashMap<>());
+        Scanner sc = new Scanner(System.in);
+        System.out.println("Enter default location on your file system which will be used to temporarly store files before uploading: ");
+        this.defaultLocalFileSystemLocation = sc.nextLine();
         driveService = new Drive.Builder(HTTP_TRANSPORT, DriveQuickstart.getJsonFactory(), DriveQuickstart.getCredentials(HTTP_TRANSPORT))
                 .setApplicationName(DriveQuickstart.getApplicationName())
                 .build();
@@ -211,7 +214,6 @@ public class GoogleDriveUser extends AbstractUser {
             //return 0;
             e.printStackTrace();
         }
-        System.out.println("File ID: " + file.getId() + "; file name: " + file.getName());
         return 1;
     }
 
@@ -375,39 +377,50 @@ public class GoogleDriveUser extends AbstractUser {
         String array[] = name.split("/");
         name = array[array.length-1];
         List<File> files = findFileByName(name);
-        ////
+
         String fileId = null;
         File fl = null;
-        for(File f: files){
-            //System.out.println("Roditelji: " + f.getParents() + "trazimo: " + array[0]);
-            if(f.getParents().contains(this.getFileIdByName(array[0]))){
-                fileId = f.getId();
-                fl = f;
-                break;
+        //// Samo za inicijalni download->kada citamo usere iz skladista za logovanje
+        if(name.contains("users.json") || name.contains("storage.json")){
+            for(File f: files){
+                if(f.getParents().contains(this.getFileIdByName(array[0]))){
+                    fileId = f.getId();
+                    fl = f;
+                    break;
+                }
             }
+        }else{
+               fl = files.get(0);
+               fileId = fl.getId();
         }
+        ////
         if(fl == null){
             System.out.println("Error in download");
             return 0;
         }
-        ////
         if(!isFolder(fl)){ // ako nije folder, vec fajl, mozemo odmah da ga download-ujuemo
             try {
-                download1(fileId, whereToDownload, name);
+                if(fl.getSize() > 0){
+                    download1(fileId, whereToDownload, name);
+                }else{
+                    System.out.println("File " + fl.getName() + " is empty, it will not be downloaded.");
+                    return 0;
+                }
             }catch (Exception e1){
                 try {
                     download2(fileId, whereToDownload, name);
                 }catch (Exception e2){
-                    e2.printStackTrace();
+                    return 0;
+                    //e2.printStackTrace();
                 }
             }
-            return 0;
+            return 1;
         }
 
         String fileQuery = "'" + fileId + "' in parents and trashed=false";
         FileList childrenList = null;
         try {
-            childrenList = driveService.files().list().setFields("nextPageToken, files(id, name, createdTime, mimeType, modifiedTime)").setQ(fileQuery).execute();
+            childrenList = driveService.files().list().setFields("nextPageToken, files(id, name, createdTime, mimeType, modifiedTime, size)").setQ(fileQuery).execute();
         } catch (IOException e) {
             e.printStackTrace();
         }
@@ -424,7 +437,12 @@ public class GoogleDriveUser extends AbstractUser {
                 continue;
             }
             try {
-                download1(file.getId(), whereToDownload + "\\" + name, file.getName());
+                if(file.getSize() > 0){
+                    download1(file.getId(), whereToDownload + "\\" + name, file.getName());
+                }else{
+                    System.out.println("File " + file.getName() + " is empty, it will not be downloaded.");
+                    return 0;
+                }
             }catch (Exception e1){
                 try {
                     download2(file.getId(), whereToDownload + "\\" + name, file.getName());
@@ -437,8 +455,6 @@ public class GoogleDriveUser extends AbstractUser {
         return 1;
     }
 
-    //PROBLEM: ne radi kada se prosledi cela putanja, npr: mojeSkladiste/dir1; radi samo sa dir1-->srediti
-    //RESENO: ako korisnik unese celu putanju, mi uzimamo samo poslednji naziv zato sto znamo da su imena jedinstvena na nivou skladista
     @Override
     public Collection<String> searchFilesInDir(String dir) {
         if(!checkPrivilege(Privilege.READ)){
@@ -504,11 +520,11 @@ public class GoogleDriveUser extends AbstractUser {
 
     @Override
     public Collection<String> searchByName(String name) {
-        /*
+
         if(!checkPrivilege(Privilege.READ)){
             System.out.println("Nemate dovoljno visok nivo privilegije za ovu operaciju.");
             return null;
-        }                                                // jedinstvena na nivou skladista
+        }
         FileList result = null;
         try {
             result = driveService.files().list()
@@ -523,14 +539,24 @@ public class GoogleDriveUser extends AbstractUser {
             System.out.println("No files found.");
             return null;
         }
-        ArrayList<String> fileNames = new ArrayList<>();
-        for (File file : files) {
-            fileNames.add(file.getName());
+        StringBuilder pathSolution = new StringBuilder();
+        List<String> sol = new ArrayList<>();
+        for (File f: files){
+            String parentID = f.getParents().get(0);
+            while(parentID != null){
+                File tmp = this.getFileById(parentID);
+                if(tmp != null){
+                    parentID = tmp.getParents().get(0);
+                    pathSolution.insert(0, tmp.getName() + "/");
+                }else{
+                    parentID = null;
+                }
+            }
+            pathSolution.append(name);
+            sol.add(pathSolution.toString());
+            pathSolution.delete(0, pathSolution.length());
         }
-        return fileNames;
-         */
-        System.out.println("Operation is not supported in google drive implementation.");
-        return null;
+        return sol;
     }
 
     @Override
@@ -669,7 +695,9 @@ public class GoogleDriveUser extends AbstractUser {
         List<String> result = new ArrayList<>();
         for(File f: files){
             DateTime dt = f.getCreatedTime();
-            if(dt.getValue() > date1.getTime() && dt.getValue() < date2.getTime()){
+            DateTime date1Time = new DateTime(date1);
+            DateTime date2Time = new DateTime(date2);
+            if(dt.getValue() > date1Time.getValue() && dt.getValue() < date2Time.getValue()){
                 result.add(f.getName());
             }
         }
@@ -816,9 +844,14 @@ public class GoogleDriveUser extends AbstractUser {
         OutputStream outputStream = new ByteArrayOutputStream();
         driveService.files().get(fileId)
                 .executeMediaAndDownloadTo(outputStream);
+
         Path filepath = Paths.get(whereToDownload + "\\" + name); //creates Path instance
-        Path p = Files.createFile(filepath);
+        //Path p = Files.createFile(filepath);
+        java.io.File f = new java.io.File(whereToDownload + "\\" + name);
+        f.createNewFile();
+
         List<String> lines = Arrays.asList(outputStream.toString());
+        outputStream.close();
         Files.write(Paths.get(whereToDownload + "\\" + name), lines, StandardCharsets.UTF_8);
     }
     private void download2(String fileId, String whereToDownload, String name) throws IOException {//za google docs fajlove
@@ -918,7 +951,7 @@ public class GoogleDriveUser extends AbstractUser {
         try {
             result = driveService.files().list()
                     .setQ("name = '" + name + "'")
-                    .setFields("nextPageToken, files(id, name, createdTime, mimeType, modifiedTime, size, parents)")
+                    .setFields("nextPageToken, files(id, name, createdTime, mimeType, modifiedTime, size, parents, size)")
                     .execute();
         } catch (IOException e) {
             e.printStackTrace();
@@ -1108,5 +1141,24 @@ public class GoogleDriveUser extends AbstractUser {
             e.printStackTrace();
         }
         return result.size();
+    }
+    private File getFileById(String fileId){
+        FileList result = null;
+        try {
+            result = driveService.files().list()
+                    .setFields("files(id, name, parents)")
+                    .execute();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        if(result == null || result.getFiles() == null || result.getFiles().size() == 0){
+            return null;
+        }
+        for(File f: result.getFiles()){
+            if(f.getId().equals(fileId)){
+                return f;
+            }
+        }
+        return null;
     }
 }
